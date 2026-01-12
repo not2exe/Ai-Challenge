@@ -1,0 +1,54 @@
+# CLI Chat Configuration for DeepSeek
+# Copy this file to ~/.cli-chat/config.yaml and customize
+
+# DeepSeek API Configuration
+api:
+  # API key - can be overridden by DEEPSEEK_API_KEY environment variable
+  # Get your key at: https://platform.deepseek.com/api_keys
+  key: ""
+
+  # Base URL for the API
+  base_url: "https://api.deepseek.com"
+
+  # Request timeout in seconds
+  timeout: 120
+
+# Model Configuration
+model:
+  # Model to use - available options:
+  # - deepseek-chat (fast, general-purpose, DeepSeek-V3.2 non-thinking mode)
+  # - deepseek-reasoner (reasoning mode, better for complex problems)
+  name: "deepseek-chat"
+
+  # Maximum tokens to generate in response
+  max_tokens: 2048
+
+  # Temperature (0.0 to 2.0) - higher = more creative
+  temperature: 1.0
+
+  # Default system prompt - defines DeepSeek's behavior
+  system_prompt: |
+    You are a helpful AI assistant. Provide clear, concise, and accurate responses.
+
+# Session Configuration
+session:
+  # Maximum number of messages to keep in conversation history
+  # Older messages are automatically truncated
+  max_history: 50
+
+  # Save conversation history to file on exit
+  save_history: false
+
+  # Location to save conversation history
+  history_file: "~/.cli-chat/history.json"
+
+# UI Configuration
+ui:
+  # Show token usage after each response
+  show_token_count: true
+
+  # Enable colored output (disable for plain text)
+  colored_output: true
+
+  # Show timestamps for messages (not yet implemented)
+  show_timestamps: false
