@@ -34,12 +34,12 @@ func (r *REPL) parseCommand(input string) (bool, string, string) {
 
 func setupReadline() (*readline.Instance, error) {
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:                "You: ",
-		HistoryFile:           "",
-		InterruptPrompt:       "^C",
-		EOFPrompt:             "exit",
-		HistorySearchFold:     true,
-		FuncFilterInputRune:   filterInput,
+		Prompt:              "Type here: ",
+		HistoryFile:         "",
+		InterruptPrompt:     "^C",
+		EOFPrompt:           "exit",
+		HistorySearchFold:   true,
+		FuncFilterInputRune: filterInput,
 	})
 
 	return rl, err
