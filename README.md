@@ -1,7 +1,9 @@
 # CLI Chat - Interactive DeepSeek CLI Tool
 A Go-based command-line interface for chatting with DeepSeek AI models. Features an interactive REPL with multi-turn conversation support, configurable system prompts, and beautiful terminal output.
 
-[DEMO](https://drive.google.com/file/d/1n2vILKWM8VqzTluYd3TqC7oW8xTh4BEb/view?usp=sharing)
+[DEMO FIRST DAY](https://drive.google.com/file/d/1n2vILKWM8VqzTluYd3TqC7oW8xTh4BEb/view?usp=sharing)
+[DEMO SECOND DAY](https://drive.google.com/file/d/1c2NqfliFL_v3-xcokEe6dUyx85BlXA6N/view?usp=sharing)
+
 ## Features
 
 - **Interactive REPL**: Continuous chat sessions with DeepSeek AI
