@@ -139,11 +139,15 @@ func (f *Formatter) FormatHelp() string {
 		"  /clear               - Clear conversation history",
 		"  /system <prompt>     - Update system prompt",
 		"  /show                - Show current system prompt",
+		"  /format json         - Enable JSON response format",
+		"  /format show         - Display current format setting",
+		"  /format clear        - Remove format restrictions",
 		"  /quit or /exit       - Exit the chat",
 		"",
 		"Tips:",
 		"  - Press Ctrl+C or Ctrl+D to exit",
 		"  - Your conversation history is maintained throughout the session",
+		"  - Use /format json to get structured responses with tags, steps, URLs, etc.",
 		"",
 	}
 

@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/chzyer/readline"
 	"github.com/notexe/cli-chat/internal/api"
@@ -137,8 +138,52 @@ func (r *REPL) handleCommand(command, args string) error {
 		r.displayInfo(fmt.Sprintf("Current conversation has %d messages.", count))
 		return nil
 
+	case "/format", "/f":
+		return r.handleFormatCommand(args)
+
 	default:
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", command)
+	}
+}
+
+func (r *REPL) handleFormatCommand(args string) error {
+	if args == "" {
+		return fmt.Errorf("usage: /format <json|show|clear>")
+	}
+
+	parts := strings.Fields(args)
+	subcommand := strings.ToLower(parts[0])
+
+	switch subcommand {
+	case "json":
+		template, err := chat.GetFormatTemplate("json")
+		if err != nil {
+			return err
+		}
+
+		if err := r.session.SetFormatPrompt(template.Prompt); err != nil {
+			return err
+		}
+
+		r.displaySystem("JSON format template applied. Responses will be in structured JSON format.")
+		return nil
+
+	case "show":
+		current := r.session.GetFormatPrompt()
+		if current == "" {
+			r.displayInfo("No format template set (using default behavior).")
+		} else {
+			r.displayInfo("Current format: JSON")
+		}
+		return nil
+
+	case "clear", "off":
+		r.session.ClearFormatPrompt()
+		r.displaySystem("Format template cleared.")
+		return nil
+
+	default:
+		return fmt.Errorf("unknown format: %s (available: json)", subcommand)
 	}
 }
 
