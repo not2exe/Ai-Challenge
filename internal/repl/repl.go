@@ -83,10 +83,68 @@ func (r *REPL) Stop() {
 }
 
 func (r *REPL) handleMessage(ctx context.Context, message string) error {
+	// Phase 1: Add user message
 	r.session.AddUserMessage(message)
-	r.status.Show("Waiting for response...")
+
+	// Check if clarify mode is enabled
+	if r.session.IsClarifyEnabled() {
+		return r.handleMessageWithClarify(ctx, message)
+	}
+
+	// Normal flow: direct response
+	return r.sendMessageAndDisplay(ctx, true)
+}
+
+func (r *REPL) handleMessageWithClarify(ctx context.Context, originalMessage string) error {
+	// Step 1: Request clarifying questions from AI
+	r.status.Show("Analyzing question...")
 
 	req := r.session.BuildAPIRequest()
+	response, err := r.client.SendMessage(ctx, req)
+	if err != nil {
+		return fmt.Errorf("API request failed: %w", err)
+	}
+
+	r.status.Hide()
+
+	// Step 2: Try to parse clarifying questions
+	clarifyResp, err := chat.ParseClarifyResponse(response.Content)
+	if err != nil {
+		// If parsing fails, treat as normal response
+		r.session.AddAssistantMessage(response.Content)
+		r.displayResponse(response)
+		return nil
+	}
+
+	// Step 3: Display intro message if provided
+	if clarifyResp.Message != "" {
+		fmt.Println()
+		fmt.Println(r.formatter.FormatAssistantMessage(clarifyResp.Message))
+	}
+
+	// Step 4: Ask questions interactively
+	answers, err := r.AskClarifyingQuestions(clarifyResp.Questions)
+	if err != nil {
+		return fmt.Errorf("failed to collect answers: %w", err)
+	}
+
+	// Step 5: Format answers and add to history
+	answersText := chat.FormatQuestionAnswers(answers)
+	r.session.AddAssistantMessage("Asked clarifying questions")
+	r.session.AddUserMessage(answersText)
+
+	// Step 6: Get final response with clarifications (without asking more questions)
+	r.status.Show("Generating response with clarifications...")
+	return r.sendMessageAndDisplay(ctx, false)
+}
+
+func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) error {
+	var req api.MessageRequest
+	if includeClarify {
+		req = r.session.BuildAPIRequest()
+	} else {
+		req = r.session.BuildAPIRequestWithoutClarify()
+	}
 
 	response, err := r.client.SendMessage(ctx, req)
 	if err != nil {
@@ -141,6 +199,9 @@ func (r *REPL) handleCommand(command, args string) error {
 	case "/format", "/f":
 		return r.handleFormatCommand(args)
 
+	case "/clarify", "/cl":
+		return r.handleClarifyCommand(args)
+
 	default:
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", command)
 	}
@@ -184,6 +245,37 @@ func (r *REPL) handleFormatCommand(args string) error {
 
 	default:
 		return fmt.Errorf("unknown format: %s (available: json)", subcommand)
+	}
+}
+
+func (r *REPL) handleClarifyCommand(args string) error {
+	if args == "" {
+		return fmt.Errorf("usage: /clarify <on|off|show>")
+	}
+
+	subcommand := strings.ToLower(strings.TrimSpace(args))
+
+	switch subcommand {
+	case "on", "enable":
+		r.session.SetClarifyMode(true)
+		r.displaySystem("Clarifying questions mode ENABLED. AI will ask questions before answering.")
+		return nil
+
+	case "off", "disable":
+		r.session.SetClarifyMode(false)
+		r.displaySystem("Clarifying questions mode DISABLED. AI will answer directly.")
+		return nil
+
+	case "show", "status":
+		if r.session.IsClarifyEnabled() {
+			r.displayInfo("Clarifying questions mode: ENABLED ✓")
+		} else {
+			r.displayInfo("Clarifying questions mode: DISABLED")
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unknown clarify command: %s (use: on, off, show)", subcommand)
 	}
 }
 
