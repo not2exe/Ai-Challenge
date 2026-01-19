@@ -11,7 +11,8 @@ import (
 func (r *REPL) displayResponse(response *api.MessageResponse) {
 	r.status.Hide()
 
-	displayContent := response.Content
+	// Apply terminal formatting (markdown/LaTeX cleanup)
+	displayContent := chat.FormatForTerminal(response.Content)
 
 	if r.session.GetFormatPrompt() != "" {
 		if chat.HasMarkdownCodeBlocks(response.Content) {

@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -202,6 +203,9 @@ func (r *REPL) handleCommand(command, args string) error {
 	case "/clarify", "/cl":
 		return r.handleClarifyCommand(args)
 
+	case "/temp", "/temperature", "/t":
+		return r.handleTempCommand(args)
+
 	default:
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", command)
 	}
@@ -277,6 +281,26 @@ func (r *REPL) handleClarifyCommand(args string) error {
 	default:
 		return fmt.Errorf("unknown clarify command: %s (use: on, off, show)", subcommand)
 	}
+}
+
+func (r *REPL) handleTempCommand(args string) error {
+	if args == "" {
+		temp := r.session.GetTemperature()
+		r.displayInfo(fmt.Sprintf("Current temperature: %.2f (range: 0-2)", temp))
+		return nil
+	}
+
+	temp, err := strconv.ParseFloat(strings.TrimSpace(args), 64)
+	if err != nil {
+		return fmt.Errorf("invalid temperature value: %s (use a number between 0 and 2)", args)
+	}
+
+	if err := r.session.SetTemperature(temp); err != nil {
+		return err
+	}
+
+	r.displaySystem(fmt.Sprintf("Temperature set to %.2f", temp))
+	return nil
 }
 
 func (r *REPL) SaveHistory() error {

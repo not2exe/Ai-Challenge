@@ -139,6 +139,7 @@ func (f *Formatter) FormatHelp() string {
 		"  /clear               - Clear conversation history",
 		"  /system <prompt>     - Update system prompt",
 		"  /show                - Show current system prompt",
+		"  /temp <value>        - Set temperature (0-2), or show current if no value",
 		"  /format json         - Enable JSON response format",
 		"  /format show         - Display current format setting",
 		"  /format clear        - Remove format restrictions",
@@ -152,6 +153,7 @@ func (f *Formatter) FormatHelp() string {
 		"  - Use /clarify on to have AI ask questions before answering",
 		"  - Your conversation history is maintained throughout the session",
 		"  - Use /format json to get structured responses with tags, steps, URLs, etc.",
+		"  - Temperature controls randomness: 0 = focused, 2 = creative",
 		"",
 	}
 
