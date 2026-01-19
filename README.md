@@ -7,6 +7,8 @@ A Go-based command-line interface for chatting with DeepSeek AI models. Features
 
 [DEMO THIRD DAY](https://drive.google.com/file/d/1sx90AYNCWIWlzOz2raiCf8j6NNOvMxzg/view?usp=sharing)
 
+[DEMO SIXTH DAY](https://drive.google.com/file/d/1uyrCISu8hLML0qZ-_yNdrBgQPmvhHeuh/view?usp=drive_link)
+
 ## Features
 
 - **Interactive REPL**: Continuous chat sessions with DeepSeek AI
