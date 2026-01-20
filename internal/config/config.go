@@ -11,13 +11,36 @@ import (
 	"github.com/knadh/koanf/v2"
 )
 
+// Provider type constants (duplicated from api package to avoid import cycle)
+const (
+	ProviderDeepSeek = "deepseek"
+	ProviderOllama   = "ollama"
+)
+
 type Config struct {
-	API     APIConfig     `koanf:"api"`
-	Model   ModelConfig   `koanf:"model"`
-	Session SessionConfig `koanf:"session"`
-	UI      UIConfig      `koanf:"ui"`
+	Provider string         `koanf:"provider"`
+	DeepSeek DeepSeekConfig `koanf:"deepseek"`
+	Ollama   OllamaConfig   `koanf:"ollama"`
+	Model    ModelConfig    `koanf:"model"`
+	Session  SessionConfig  `koanf:"session"`
+	UI       UIConfig       `koanf:"ui"`
+
+	// Deprecated: Use DeepSeek config instead. Kept for backwards compatibility.
+	API APIConfig `koanf:"api"`
 }
 
+type DeepSeekConfig struct {
+	APIKey  string `koanf:"api_key"`
+	BaseURL string `koanf:"base_url"`
+	Timeout int    `koanf:"timeout"`
+}
+
+type OllamaConfig struct {
+	BaseURL string `koanf:"base_url"`
+	Timeout int    `koanf:"timeout"`
+}
+
+// APIConfig is kept for backwards compatibility with old config files.
 type APIConfig struct {
 	Key     string `koanf:"key"`
 	BaseURL string `koanf:"base_url"`
@@ -66,7 +89,10 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to load env vars: %w", err)
 	}
 
+	// Handle DEEPSEEK_API_KEY environment variable
 	if apiKey := os.Getenv("DEEPSEEK_API_KEY"); apiKey != "" {
+		k.Set("deepseek.api_key", apiKey)
+		// Also set in legacy api.key for backwards compatibility
 		k.Set("api.key", apiKey)
 	}
 
@@ -75,14 +101,38 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Backwards compatibility: migrate api.key to deepseek.api_key
+	if cfg.DeepSeek.APIKey == "" && cfg.API.Key != "" {
+		cfg.DeepSeek.APIKey = cfg.API.Key
+	}
+	if cfg.DeepSeek.BaseURL == "" && cfg.API.BaseURL != "" {
+		cfg.DeepSeek.BaseURL = cfg.API.BaseURL
+	}
+	if cfg.DeepSeek.Timeout == 0 && cfg.API.Timeout > 0 {
+		cfg.DeepSeek.Timeout = cfg.API.Timeout
+	}
+
 	cfg.Session.HistoryFile = expandPath(cfg.Session.HistoryFile)
 
 	return &cfg, nil
 }
 
 func (c *Config) Validate() error {
-	if c.API.Key == "" {
-		return fmt.Errorf("API key is required (set DEEPSEEK_API_KEY or add to config file)")
+	// Provider-specific validation
+	switch c.Provider {
+	case ProviderDeepSeek:
+		if c.DeepSeek.APIKey == "" {
+			return fmt.Errorf("DeepSeek API key is required (set DEEPSEEK_API_KEY or add to config file)")
+		}
+	case ProviderOllama:
+		// Ollama doesn't require API key, but we could check if Ollama is running
+		// For now, just validate that base URL is set (has a default)
+		if c.Ollama.BaseURL == "" {
+			c.Ollama.BaseURL = "http://localhost:11434"
+		}
+	default:
+		return fmt.Errorf("unknown provider: %s (supported: %s, %s)",
+			c.Provider, ProviderDeepSeek, ProviderOllama)
 	}
 
 	if c.Model.Name == "" {
@@ -104,12 +154,41 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// ProviderConfig contains provider-specific configuration for the API package.
+type ProviderConfig struct {
+	Type     string
+	DeepSeek DeepSeekConfig
+	Ollama   OllamaConfig
+	Model    ModelSettings
+}
+
+// ModelSettings contains model parameters used by all providers.
+type ModelSettings struct {
+	Name        string
+	MaxTokens   int
+	Temperature float64
+}
+
+// GetProviderConfig returns the provider configuration for the API package.
+func (c *Config) GetProviderConfig() *ProviderConfig {
+	return &ProviderConfig{
+		Type:     c.Provider,
+		DeepSeek: c.DeepSeek,
+		Ollama:   c.Ollama,
+		Model: ModelSettings{
+			Name:        c.Model.Name,
+			MaxTokens:   c.Model.MaxTokens,
+			Temperature: c.Model.Temperature,
+		},
+	}
+}
+
 func expandPath(path string) string {
 	if path == "" {
 		return path
 	}
 
-	if path[:2] == "~/" {
+	if len(path) >= 2 && path[:2] == "~/" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return path

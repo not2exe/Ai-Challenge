@@ -1,11 +1,14 @@
-# CLI Chat Configuration for DeepSeek
+# CLI Chat Configuration
 # Copy this file to ~/.cli-chat/config.yaml and customize
 
+# Provider to use: "deepseek" or "ollama"
+provider: deepseek
+
 # DeepSeek API Configuration
-api:
+deepseek:
   # API key - can be overridden by DEEPSEEK_API_KEY environment variable
   # Get your key at: https://platform.deepseek.com/api_keys
-  key: ""
+  api_key: ""
 
   # Base URL for the API
   base_url: "https://api.deepseek.com"
@@ -13,11 +16,25 @@ api:
   # Request timeout in seconds
   timeout: 120
 
+# Ollama Configuration (for local models)
+ollama:
+  # Base URL for Ollama server
+  base_url: "http://localhost:11434"
+
+  # Request timeout in seconds
+  timeout: 120
+
 # Model Configuration
 model:
-  # Model to use - available options:
-  # - deepseek-chat (fast, general-purpose, DeepSeek-V3.2 non-thinking mode)
-  # - deepseek-reasoner (reasoning mode, better for complex problems)
+  # Model to use
+  # For DeepSeek:
+  #   - deepseek-chat (fast, general-purpose, DeepSeek-V3.2 non-thinking mode)
+  #   - deepseek-reasoner (reasoning mode, better for complex problems)
+  # For Ollama:
+  #   - llama3, llama3:8b, llama3:70b
+  #   - qwen2, qwen2:7b, qwen2:72b
+  #   - mistral, mistral:7b
+  #   - Any model available in your Ollama installation
   name: "deepseek-chat"
 
   # Maximum tokens to generate in response
@@ -26,7 +43,7 @@ model:
   # Temperature (0.0 to 2.0) - higher = more creative
   temperature: 1.0
 
-  # Default system prompt - defines DeepSeek's behavior
+  # Default system prompt - defines AI's behavior
   system_prompt: |
     You are a helpful AI assistant. Provide clear, concise, and accurate responses.
 
@@ -52,3 +69,15 @@ ui:
 
   # Show timestamps for messages (not yet implemented)
   show_timestamps: false
+
+
+# ========================================
+# LEGACY CONFIGURATION (deprecated)
+# ========================================
+# The 'api' section below is deprecated but still supported
+# for backwards compatibility. Please use 'deepseek' section instead.
+#
+# api:
+#   key: ""
+#   base_url: "https://api.deepseek.com"
+#   timeout: 120

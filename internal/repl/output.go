@@ -2,13 +2,15 @@ package repl
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/notexe/cli-chat/internal/api"
 	"github.com/notexe/cli-chat/internal/chat"
+	"github.com/notexe/cli-chat/internal/ui"
 )
 
-func (r *REPL) displayResponse(response *api.MessageResponse) {
+func (r *REPL) displayResponse(response *api.MessageResponse, duration time.Duration) {
 	r.status.Hide()
 
 	// Apply terminal formatting (markdown/LaTeX cleanup)
@@ -45,7 +47,10 @@ func (r *REPL) displayResponse(response *api.MessageResponse) {
 	}
 
 	if r.config.UI.ShowTokenCount {
-		fmt.Println(r.formatter.FormatTokenUsage(response.Usage))
+		fmt.Println(r.formatter.FormatTokenUsage(response.Usage, ui.TokenUsageOptions{
+			Duration: duration,
+			Model:    r.config.Model.Name,
+		}))
 	}
 
 	fmt.Println()
@@ -58,7 +63,7 @@ func (r *REPL) displayError(err error) {
 }
 
 func (r *REPL) displayWelcome() {
-	fmt.Print(r.formatter.FormatWelcome(r.config.Model.Name))
+	fmt.Print(r.formatter.FormatWelcome(r.config.Model.Name, r.provider.Name()))
 }
 
 func (r *REPL) displayHelp() {

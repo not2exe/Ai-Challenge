@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/chzyer/readline"
 	"github.com/notexe/cli-chat/internal/api"
@@ -15,25 +16,25 @@ import (
 
 type REPL struct {
 	session   *chat.Session
-	client    *api.Client
+	provider  api.Provider
 	config    *config.Config
 	rl        *readline.Instance
 	formatter *ui.Formatter
 	status    *ui.StatusDisplay
 }
 
-func NewREPL(session *chat.Session, client *api.Client, cfg *config.Config) (*REPL, error) {
+func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (*REPL, error) {
 	rl, err := setupReadline()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup readline: %w", err)
 	}
 
-	formatter := ui.NewFormatter(cfg.UI.ColoredOutput)
+	formatter := ui.NewFormatter(cfg.UI.ColoredOutput, provider.Name())
 	status := ui.NewStatusDisplay(formatter, true)
 
 	return &REPL{
 		session:   session,
-		client:    client,
+		provider:  provider,
 		config:    cfg,
 		rl:        rl,
 		formatter: formatter,
@@ -101,7 +102,9 @@ func (r *REPL) handleMessageWithClarify(ctx context.Context, originalMessage str
 	r.status.Show("Analyzing question...")
 
 	req := r.session.BuildAPIRequest()
-	response, err := r.client.SendMessage(ctx, req)
+	start := time.Now()
+	response, err := r.provider.SendMessage(ctx, req)
+	duration := time.Since(start)
 	if err != nil {
 		return fmt.Errorf("API request failed: %w", err)
 	}
@@ -113,7 +116,7 @@ func (r *REPL) handleMessageWithClarify(ctx context.Context, originalMessage str
 	if err != nil {
 		// If parsing fails, treat as normal response
 		r.session.AddAssistantMessage(response.Content)
-		r.displayResponse(response)
+		r.displayResponse(response, duration)
 		return nil
 	}
 
@@ -147,13 +150,15 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		req = r.session.BuildAPIRequestWithoutClarify()
 	}
 
-	response, err := r.client.SendMessage(ctx, req)
+	start := time.Now()
+	response, err := r.provider.SendMessage(ctx, req)
+	duration := time.Since(start)
 	if err != nil {
 		return fmt.Errorf("API request failed: %w", err)
 	}
 
 	r.session.AddAssistantMessage(response.Content)
-	r.displayResponse(response)
+	r.displayResponse(response, duration)
 
 	return nil
 }
@@ -182,7 +187,7 @@ func (r *REPL) handleCommand(command, args string) error {
 	case "/show":
 		prompt := r.session.GetSystemPrompt()
 		if prompt == "" {
-			r.displayInfo("No system prompt set (using DeepSeek's default behavior).")
+			r.displayInfo(fmt.Sprintf("No system prompt set (using %s's default behavior).", r.provider.Name()))
 		} else {
 			r.displayInfo(fmt.Sprintf("Current system prompt:\n%s", prompt))
 		}
@@ -195,6 +200,10 @@ func (r *REPL) handleCommand(command, args string) error {
 	case "/count":
 		count := r.session.MessageCount()
 		r.displayInfo(fmt.Sprintf("Current conversation has %d messages.", count))
+		return nil
+
+	case "/provider", "/p":
+		r.displayInfo(fmt.Sprintf("Provider: %s\nModel: %s", r.provider.Name(), r.config.Model.Name))
 		return nil
 
 	case "/format", "/f":

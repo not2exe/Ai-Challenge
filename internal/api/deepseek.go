@@ -9,28 +9,31 @@ import (
 	"github.com/notexe/cli-chat/internal/config"
 )
 
-type Client struct {
+// DeepSeekProvider implements Provider for DeepSeek API.
+type DeepSeekProvider struct {
 	client deepseek.Client
-	config *config.APIConfig
+	config config.DeepSeekConfig
 }
 
-func NewClient(cfg *config.APIConfig) (*Client, error) {
-	if cfg.Key == "" {
-		return nil, fmt.Errorf("API key is required")
+// NewDeepSeekProvider creates a new DeepSeek provider.
+func NewDeepSeekProvider(cfg config.DeepSeekConfig) (*DeepSeekProvider, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("DeepSeek API key is required")
 	}
 
-	client, err := deepseek.NewClient(cfg.Key)
+	client, err := deepseek.NewClient(cfg.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DeepSeek client: %w", err)
 	}
 
-	return &Client{
+	return &DeepSeekProvider{
 		client: client,
 		config: cfg,
 	}, nil
 }
 
-func (c *Client) SendMessage(ctx context.Context, req MessageRequest) (*MessageResponse, error) {
+// SendMessage sends a message to DeepSeek API and returns the response.
+func (p *DeepSeekProvider) SendMessage(ctx context.Context, req MessageRequest) (*MessageResponse, error) {
 	messages := make([]*request.Message, 0, len(req.Messages)+1)
 
 	if req.System != "" {
@@ -61,7 +64,7 @@ func (c *Client) SendMessage(ctx context.Context, req MessageRequest) (*MessageR
 		Stream:      false,
 	}
 
-	resp, err := c.client.CallChatCompletionsChat(ctx, chatReq)
+	resp, err := p.client.CallChatCompletionsChat(ctx, chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek API request failed: %w", err)
 	}
@@ -81,4 +84,14 @@ func (c *Client) SendMessage(ctx context.Context, req MessageRequest) (*MessageR
 	}
 
 	return response, nil
+}
+
+// Name returns the provider name.
+func (p *DeepSeekProvider) Name() string {
+	return "deepseek"
+}
+
+// Close releases resources (no-op for DeepSeek).
+func (p *DeepSeekProvider) Close() error {
+	return nil
 }

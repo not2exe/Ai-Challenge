@@ -6,6 +6,17 @@ import (
 
 func DefaultConfig() map[string]interface{} {
 	return map[string]interface{}{
+		"provider": "deepseek",
+		"deepseek": map[string]interface{}{
+			"api_key":  "",
+			"base_url": "https://api.deepseek.com",
+			"timeout":  120,
+		},
+		"ollama": map[string]interface{}{
+			"base_url": "http://localhost:11434",
+			"timeout":  120,
+		},
+		// Deprecated: kept for backwards compatibility
 		"api": map[string]interface{}{
 			"key":      "",
 			"base_url": "https://api.deepseek.com",
