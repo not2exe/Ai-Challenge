@@ -23,10 +23,16 @@ func DefaultConfig() map[string]interface{} {
 			"timeout":  120,
 		},
 		"model": map[string]interface{}{
-			"name":          "deepseek-chat",
-			"max_tokens":    2048,
-			"temperature":   1.0,
-			"system_prompt": "You are a helpful AI assistant. Provide clear, concise, and accurate responses.",
+			"name":           "deepseek-chat",
+			"max_tokens":     8192,
+			"temperature":    1.0,
+			"system_prompt":  "You are a helpful AI assistant. Provide clear, concise, and accurate responses.",
+			"context_window": 0, // 0 means use default for model
+		},
+		"context": map[string]interface{}{
+			"summarize_at":   0.70, // Summarize when context reaches 70%
+			"target_after":   0.40, // Target 40% after summarization
+			"auto_summarize": true, // Enable auto-summarization
 		},
 		"session": map[string]interface{}{
 			"max_history":  50,

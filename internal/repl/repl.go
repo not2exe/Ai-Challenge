@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func (r *REPL) Start(ctx context.Context) error {
 
 		isCommand, command, args := r.parseCommand(input)
 		if isCommand {
-			if err := r.handleCommand(command, args); err != nil {
+			if err := r.handleCommand(ctx, command, args); err != nil {
 				r.displayError(err)
 			}
 
@@ -143,6 +144,13 @@ func (r *REPL) handleMessageWithClarify(ctx context.Context, originalMessage str
 }
 
 func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) error {
+	// Check if summarization is needed BEFORE sending (based on previous request tokens)
+	if r.session.NeedsSummarization() {
+		if err := r.performSummarization(ctx); err != nil {
+			r.displaySystem("Warning: Failed to compress history: " + err.Error())
+		}
+	}
+
 	var req api.MessageRequest
 	if includeClarify {
 		req = r.session.BuildAPIRequest()
@@ -160,10 +168,49 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 	r.session.AddAssistantMessage(response.Content)
 	r.displayResponse(response, duration)
 
+	// Update token tracking from response for next iteration
+	r.session.UpdateTokensFromResponse(response.Usage)
+
 	return nil
 }
 
-func (r *REPL) handleCommand(command, args string) error {
+// performSummarization compresses the conversation history using AI summarization.
+func (r *REPL) performSummarization(ctx context.Context) error {
+	r.status.Show("Compressing history...")
+	defer r.status.Hide()
+
+	// Get messages to summarize (keep last 4 message pairs = 8 messages)
+	toSummarize, toKeep := r.session.GetMessagesToSummarize(4)
+	if len(toSummarize) == 0 {
+		return nil // Nothing to summarize
+	}
+
+	// Build summarization request
+	req := chat.BuildSummarizationRequest(
+		toSummarize,
+		r.session.GetModelName(),
+		r.session.GetMaxTokens(),
+		r.session.GetTemperature(),
+	)
+
+	// Send summarization request
+	response, err := r.provider.SendMessage(ctx, req)
+	if err != nil {
+		return fmt.Errorf("summarization API request failed: %w", err)
+	}
+
+	// Create summary message and apply it
+	summaryMsg := chat.FormatSummaryMessage(response.Content)
+	r.session.ApplySummary(summaryMsg, len(toKeep))
+
+	// Reset lastInputTokens — will be updated after next API call
+	r.session.ResetInputTokens()
+
+	r.displaySystem(fmt.Sprintf("History compressed. Summarized %d messages.", len(toSummarize)))
+	return nil
+}
+
+func (r *REPL) handleCommand(ctx context.Context, command, args string) error {
 	switch command {
 	case "/help", "/h":
 		r.displayHelp()
@@ -214,6 +261,12 @@ func (r *REPL) handleCommand(command, args string) error {
 
 	case "/temp", "/temperature", "/t":
 		return r.handleTempCommand(args)
+
+	case "/file":
+		return r.handleFileCommand(ctx, args)
+
+	case "/context", "/ctx":
+		return r.handleContextCommand(args)
 
 	default:
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", command)
@@ -310,6 +363,63 @@ func (r *REPL) handleTempCommand(args string) error {
 
 	r.displaySystem(fmt.Sprintf("Temperature set to %.2f", temp))
 	return nil
+}
+
+func (r *REPL) handleFileCommand(ctx context.Context, args string) error {
+	if args == "" {
+		return fmt.Errorf("usage: /file <filename>")
+	}
+
+	filename := strings.TrimSpace(args)
+
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read file %s: %w", filename, err)
+	}
+
+	fileContent := string(content)
+	if fileContent == "" {
+		return fmt.Errorf("file %s is empty", filename)
+	}
+
+	r.displayInfo(fmt.Sprintf("Loaded %d characters from %s", len(fileContent), filename))
+
+	return r.handleMessage(ctx, fileContent)
+}
+
+func (r *REPL) handleContextCommand(args string) error {
+	subcommand := strings.ToLower(strings.TrimSpace(args))
+
+	switch subcommand {
+	case "", "show", "status":
+		used, limit, pct := r.session.GetContextStatus()
+		threshold := r.session.GetContextManager().GetThresholdTokens(limit)
+
+		autoStatus := "enabled"
+		if !r.session.IsAutoSummarizeEnabled() {
+			autoStatus = "disabled"
+		}
+
+		info := fmt.Sprintf("Context window: %d / %d tokens (%.1f%%)\n", used, limit, pct)
+		info += fmt.Sprintf("Summarization threshold: %d tokens (%.0f%%)\n", threshold, r.session.GetContextManager().GetSummarizeAt()*100)
+		info += fmt.Sprintf("Auto-summarization: %s", autoStatus)
+
+		r.displayInfo(info)
+		return nil
+
+	case "on", "enable":
+		r.session.SetAutoSummarize(true)
+		r.displaySystem("Auto-summarization ENABLED.")
+		return nil
+
+	case "off", "disable":
+		r.session.SetAutoSummarize(false)
+		r.displaySystem("Auto-summarization DISABLED.")
+		return nil
+
+	default:
+		return fmt.Errorf("unknown context command: %s (use: show, on, off)", subcommand)
+	}
 }
 
 func (r *REPL) SaveHistory() error {

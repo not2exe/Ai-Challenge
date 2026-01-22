@@ -1,0 +1,1 @@
+Describe the key principles of clean architecture and SOLID design. How does dependency inversion help create maintainable, testable, and scalable code in large projects?

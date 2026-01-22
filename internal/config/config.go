@@ -24,6 +24,7 @@ type Config struct {
 	Model    ModelConfig    `koanf:"model"`
 	Session  SessionConfig  `koanf:"session"`
 	UI       UIConfig       `koanf:"ui"`
+	Context  ContextConfig  `koanf:"context"`
 
 	// Deprecated: Use DeepSeek config instead. Kept for backwards compatibility.
 	API APIConfig `koanf:"api"`
@@ -48,10 +49,17 @@ type APIConfig struct {
 }
 
 type ModelConfig struct {
-	Name         string  `koanf:"name"`
-	MaxTokens    int     `koanf:"max_tokens"`
-	Temperature  float64 `koanf:"temperature"`
-	SystemPrompt string  `koanf:"system_prompt"`
+	Name          string  `koanf:"name"`
+	MaxTokens     int     `koanf:"max_tokens"`
+	Temperature   float64 `koanf:"temperature"`
+	SystemPrompt  string  `koanf:"system_prompt"`
+	ContextWindow int     `koanf:"context_window"` // Override default context window (0 = use model default)
+}
+
+type ContextConfig struct {
+	SummarizeAt   float64 `koanf:"summarize_at"`   // Threshold percentage to trigger summarization (0.70 = 70%)
+	TargetAfter   float64 `koanf:"target_after"`   // Target percentage after summarization (0.40 = 40%)
+	AutoSummarize bool    `koanf:"auto_summarize"` // Enable automatic summarization
 }
 
 type SessionConfig struct {
