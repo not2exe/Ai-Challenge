@@ -12,16 +12,18 @@ import (
 	"github.com/notexe/cli-chat/internal/api"
 	"github.com/notexe/cli-chat/internal/chat"
 	"github.com/notexe/cli-chat/internal/config"
+	"github.com/notexe/cli-chat/internal/mcp"
 	"github.com/notexe/cli-chat/internal/ui"
 )
 
 type REPL struct {
-	session   *chat.Session
-	provider  api.Provider
-	config    *config.Config
-	rl        *readline.Instance
-	formatter *ui.Formatter
-	status    *ui.StatusDisplay
+	session    *chat.Session
+	provider   api.Provider
+	config     *config.Config
+	rl         *readline.Instance
+	formatter  *ui.Formatter
+	status     *ui.StatusDisplay
+	mcpManager *mcp.Manager
 }
 
 func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (*REPL, error) {
@@ -34,13 +36,19 @@ func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (
 	status := ui.NewStatusDisplay(formatter, true)
 
 	return &REPL{
-		session:   session,
-		provider:  provider,
-		config:    cfg,
-		rl:        rl,
-		formatter: formatter,
-		status:    status,
+		session:    session,
+		provider:   provider,
+		config:     cfg,
+		rl:         rl,
+		formatter:  formatter,
+		status:     status,
+		mcpManager: nil, // Set via SetMCPManager if MCP is enabled
 	}, nil
+}
+
+// SetMCPManager sets the MCP manager for tool integration.
+func (r *REPL) SetMCPManager(m *mcp.Manager) {
+	r.mcpManager = m
 }
 
 func (r *REPL) Start(ctx context.Context) error {
@@ -158,12 +166,52 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		req = r.session.BuildAPIRequestWithoutClarify()
 	}
 
+	// Add MCP tools if available
+	if r.mcpManager != nil {
+		req.Tools = r.mcpManager.GetDeepSeekTools()
+	}
+
 	start := time.Now()
 	response, err := r.provider.SendMessage(ctx, req)
-	duration := time.Since(start)
 	if err != nil {
 		return fmt.Errorf("API request failed: %w", err)
 	}
+
+	// Handle tool calls loop
+	for len(response.ToolCalls) > 0 {
+		r.status.Hide()
+
+		// Process each tool call
+		for _, tc := range response.ToolCalls {
+			r.displayToolCall(tc.Name, tc.Arguments)
+
+			// Execute tool via MCP
+			result, err := r.mcpManager.CallTool(ctx, tc.Name, tc.Arguments)
+			if err != nil {
+				result = fmt.Sprintf("Error: %v", err)
+			}
+
+			r.displayToolResult(tc.Name, result)
+
+			// Add tool result to session
+			r.session.AddToolResult(tc.ID, tc.Name, result)
+		}
+
+		// Send follow-up request with tool results
+		r.status.Show("Processing tool results...")
+		req = r.session.BuildAPIRequestWithToolResults()
+		if r.mcpManager != nil {
+			req.Tools = r.mcpManager.GetDeepSeekTools()
+		}
+
+		response, err = r.provider.SendMessage(ctx, req)
+		if err != nil {
+			return fmt.Errorf("API request failed: %w", err)
+		}
+	}
+
+	duration := time.Since(start)
+	r.status.Hide()
 
 	r.session.AddAssistantMessage(response.Content)
 	r.displayResponse(response, duration)
@@ -172,6 +220,22 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 	r.session.UpdateTokensFromResponse(response.Usage)
 
 	return nil
+}
+
+func (r *REPL) displayToolCall(name, args string) {
+	fmt.Printf("\n%s %s\n", r.formatter.FormatToolLabel("Tool:"), name)
+	if args != "" && args != "{}" {
+		fmt.Printf("  Args: %s\n", args)
+	}
+}
+
+func (r *REPL) displayToolResult(name, result string) {
+	// Truncate long results for display
+	display := result
+	if len(display) > 500 {
+		display = display[:500] + "... (truncated)"
+	}
+	fmt.Printf("  Result: %s\n", display)
 }
 
 // performSummarization compresses the conversation history using AI summarization.
@@ -267,6 +331,9 @@ func (r *REPL) handleCommand(ctx context.Context, command, args string) error {
 
 	case "/context", "/ctx":
 		return r.handleContextCommand(args)
+
+	case "/mcp":
+		return r.handleMCPCommand(args)
 
 	default:
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", command)
@@ -419,6 +486,49 @@ func (r *REPL) handleContextCommand(args string) error {
 
 	default:
 		return fmt.Errorf("unknown context command: %s (use: show, on, off)", subcommand)
+	}
+}
+
+func (r *REPL) handleMCPCommand(args string) error {
+	if r.mcpManager == nil {
+		r.displayInfo("MCP is not enabled. Add MCP servers to config.yaml and set mcp.enabled: true")
+		return nil
+	}
+
+	subcommand := strings.ToLower(strings.TrimSpace(args))
+
+	switch subcommand {
+	case "", "status", "show":
+		servers := r.mcpManager.ListServers()
+		if len(servers) == 0 {
+			r.displayInfo("No MCP servers connected.")
+			return nil
+		}
+
+		counts := r.mcpManager.ServerToolCount()
+		info := fmt.Sprintf("MCP Servers connected: %d\n", len(servers))
+		for _, name := range servers {
+			info += fmt.Sprintf("  - %s: %d tools\n", name, counts[name])
+		}
+		r.displayInfo(info)
+		return nil
+
+	case "tools", "list":
+		tools := r.mcpManager.GetAllTools()
+		if len(tools) == 0 {
+			r.displayInfo("No MCP tools available.")
+			return nil
+		}
+
+		info := fmt.Sprintf("Available MCP tools: %d\n", len(tools))
+		for _, t := range tools {
+			info += fmt.Sprintf("  - %s: %s\n", t.Name, t.Description)
+		}
+		r.displayInfo(info)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown mcp command: %s (use: status, tools)", subcommand)
 	}
 }
 

@@ -70,6 +70,42 @@ ui:
   # Show timestamps for messages (not yet implemented)
   show_timestamps: false
 
+# MCP (Model Context Protocol) Configuration
+# MCP allows the chat to use external tools like GitHub, filesystem, etc.
+mcp:
+  # Enable MCP integration
+  enabled: false
+
+  # List of MCP servers to connect to
+  servers:
+    # GitHub MCP Server - provides GitHub API tools
+    # Requires: npm install -g @modelcontextprotocol/server-github
+    # Set GITHUB_TOKEN environment variable or add to env below
+    - name: github
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-github"
+      env:
+        - "GITHUB_TOKEN=your_github_token_here"
+
+    # Filesystem MCP Server - read/write files
+    # - name: filesystem
+    #   command: npx
+    #   args:
+    #     - "-y"
+    #     - "@modelcontextprotocol/server-filesystem"
+    #     - "/path/to/allowed/directory"
+
+    # Brave Search MCP Server
+    # - name: brave-search
+    #   command: npx
+    #   args:
+    #     - "-y"
+    #     - "@modelcontextprotocol/server-brave-search"
+    #   env:
+    #     - "BRAVE_API_KEY=your_api_key"
+
 
 # ========================================
 # LEGACY CONFIGURATION (deprecated)

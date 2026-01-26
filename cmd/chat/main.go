@@ -12,6 +12,7 @@ import (
 	"github.com/notexe/cli-chat/internal/api"
 	"github.com/notexe/cli-chat/internal/chat"
 	"github.com/notexe/cli-chat/internal/config"
+	"github.com/notexe/cli-chat/internal/mcp"
 	"github.com/notexe/cli-chat/internal/repl"
 )
 
@@ -78,6 +79,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize MCP if enabled
+	var mcpManager *mcp.Manager
+	if cfg.MCP.Enabled && len(cfg.MCP.Servers) > 0 {
+		mcpManager = mcp.NewManager()
+		initCtx, initCancel := context.WithTimeout(context.Background(), 60*1e9) // 60 seconds
+
+		for _, srv := range cfg.MCP.Servers {
+			fmt.Printf("Connecting to MCP server: %s...\n", srv.Name)
+			err := mcpManager.AddServer(initCtx, mcp.ServerConfig{
+				Name:    srv.Name,
+				Command: srv.Command,
+				Args:    srv.Args,
+				Env:     srv.Env,
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to connect to MCP server %s: %v\n", srv.Name, err)
+			} else {
+				counts := mcpManager.ServerToolCount()
+				fmt.Printf("  Connected: %d tools available\n", counts[srv.Name])
+			}
+		}
+		initCancel()
+
+		if len(mcpManager.ListServers()) > 0 {
+			replInstance.SetMCPManager(mcpManager)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -93,6 +122,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to save history: %v\n", err)
 		}
 
+		if mcpManager != nil {
+			mcpManager.Close()
+		}
+
 		os.Exit(0)
 	}()
 
@@ -103,5 +136,9 @@ func main() {
 
 	if err := replInstance.SaveHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save history: %v\n", err)
+	}
+
+	if mcpManager != nil {
+		mcpManager.Close()
 	}
 }

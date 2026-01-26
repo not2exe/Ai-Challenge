@@ -33,6 +33,10 @@ var (
 
 	TokenStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244"))
+
+	ToolStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true)
 )
 
 type Formatter struct {
@@ -114,6 +118,13 @@ func (f *Formatter) FormatStatus(msg string) string {
 		return StatusStyle.Render(msg)
 	}
 	return msg
+}
+
+func (f *Formatter) FormatToolLabel(label string) string {
+	if f.colored {
+		return ToolStyle.Render(label)
+	}
+	return label
 }
 
 // TokenUsageOptions contains optional parameters for token usage display.
@@ -265,6 +276,8 @@ func (f *Formatter) FormatHelp() string {
 		"  /context             - Show context window usage",
 		"  /context on          - Enable auto-summarization",
 		"  /context off         - Disable auto-summarization",
+		"  /mcp                 - Show MCP server status",
+		"  /mcp tools           - List available MCP tools",
 		"  /count               - Show message count in conversation",
 		"  /quit or /exit       - Exit the chat",
 		"",
@@ -282,6 +295,7 @@ func (f *Formatter) FormatHelp() string {
 		"  - Temperature controls randomness: 0 = focused, 2 = creative",
 		"  - For Ollama: ollama pull <model> to download models locally",
 		"  - Context is auto-summarized at 70% to preserve conversation flow",
+		"  - MCP tools allow AI to interact with GitHub, filesystem, etc.",
 		"",
 	}
 

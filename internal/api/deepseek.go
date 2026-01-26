@@ -44,10 +44,12 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, req MessageRequest) 
 	}
 
 	for _, msg := range req.Messages {
-		messages = append(messages, &request.Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+		m := &request.Message{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			ToolCallId: msg.ToolCallID,
+		}
+		messages = append(messages, m)
 	}
 
 	var temp *float32
@@ -64,14 +66,30 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, req MessageRequest) 
 		Stream:      false,
 	}
 
+	// Add tools if provided
+	if len(req.Tools) > 0 {
+		chatReq.Tools = &req.Tools
+	}
+
 	resp, err := p.client.CallChatCompletionsChat(ctx, chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek API request failed: %w", err)
 	}
 
 	var content string
+	var toolCalls []ToolCall
+
 	if len(resp.Choices) > 0 {
 		content = resp.Choices[0].Message.Content
+
+		// Extract tool calls from response
+		for _, tc := range resp.Choices[0].Message.ToolCalls {
+			toolCalls = append(toolCalls, ToolCall{
+				ID:        tc.Id,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
 	}
 
 	response := &MessageResponse{
@@ -81,6 +99,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, req MessageRequest) 
 			InputTokens:  resp.Usage.PromptTokens,
 			OutputTokens: resp.Usage.CompletionTokens,
 		},
+		ToolCalls: toolCalls,
 	}
 
 	return response, nil

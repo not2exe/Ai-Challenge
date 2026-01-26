@@ -271,3 +271,25 @@ func (s *Session) GetMaxTokens() int {
 func (s *Session) GetContextManager() *ContextManager {
 	return s.contextMgr
 }
+
+// AddToolResult adds a tool execution result to the conversation history.
+func (s *Session) AddToolResult(toolCallID, toolName, result string) {
+	s.history.Add(api.Message{
+		Role:       "tool",
+		Content:    result,
+		ToolCallID: toolCallID,
+	})
+}
+
+// BuildAPIRequestWithToolResults builds a request that includes pending tool results.
+func (s *Session) BuildAPIRequestWithToolResults() api.MessageRequest {
+	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.formatPrompt, "")
+
+	return api.MessageRequest{
+		Messages:    s.history.GetAll(),
+		System:      systemPrompt,
+		Model:       s.config.Name,
+		MaxTokens:   s.config.MaxTokens,
+		Temperature: s.config.Temperature,
+	}
+}

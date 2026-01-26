@@ -25,9 +25,22 @@ type Config struct {
 	Session  SessionConfig  `koanf:"session"`
 	UI       UIConfig       `koanf:"ui"`
 	Context  ContextConfig  `koanf:"context"`
+	MCP      MCPConfig      `koanf:"mcp"`
 
 	// Deprecated: Use DeepSeek config instead. Kept for backwards compatibility.
 	API APIConfig `koanf:"api"`
+}
+
+type MCPConfig struct {
+	Enabled bool              `koanf:"enabled"`
+	Servers []MCPServerConfig `koanf:"servers"`
+}
+
+type MCPServerConfig struct {
+	Name    string   `koanf:"name"`
+	Command string   `koanf:"command"`
+	Args    []string `koanf:"args"`
+	Env     []string `koanf:"env"` // Environment variables like GITHUB_TOKEN=xxx
 }
 
 type DeepSeekConfig struct {
