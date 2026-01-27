@@ -44,6 +44,17 @@ func DefaultConfig() map[string]interface{} {
 			"colored_output":   true,
 			"show_timestamps":  false,
 		},
+		"mcp": map[string]interface{}{
+			"enabled":     true,
+			"config_file": "~/.cli-chat/mcp.json",
+			"servers": map[string]interface{}{
+				"filesystem": map[string]interface{}{
+					"command": "npx",
+					"args":    []string{"-y", "@modelcontextprotocol/server-filesystem", "."},
+					"env":     map[string]string{},
+				},
+			},
+		},
 	}
 }
 
@@ -53,4 +64,8 @@ func NewDefaultProvider() *confmap.Confmap {
 
 func GetDefaultConfigPath() string {
 	return "~/.cli-chat/config.yaml"
+}
+
+func GetDefaultMCPConfigPath() string {
+	return "~/.cli-chat/mcp.json"
 }

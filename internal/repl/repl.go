@@ -49,6 +49,11 @@ func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (
 // SetMCPManager sets the MCP manager for tool integration.
 func (r *REPL) SetMCPManager(m *mcp.Manager) {
 	r.mcpManager = m
+
+	// If filesystem tools are available, enhance the system prompt with guidance
+	if m != nil && m.HasFilesystemTools() {
+		r.session.SetToolsPrompt(chat.FileToolsPrompt)
+	}
 }
 
 func (r *REPL) Start(ctx context.Context) error {
@@ -181,6 +186,10 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 	for len(response.ToolCalls) > 0 {
 		r.status.Hide()
 
+		// First, add the assistant message with tool calls to history
+		// This is required by DeepSeek API - tool results must follow a message with tool_calls
+		r.session.AddAssistantMessageWithToolCalls(response.Content, response.ToolCalls)
+
 		// Process each tool call
 		for _, tc := range response.ToolCalls {
 			r.displayToolCall(tc.Name, tc.Arguments)
@@ -192,6 +201,13 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 			}
 
 			r.displayToolResult(tc.Name, result)
+
+			// Truncate large results to prevent context overflow
+			// 32K chars ≈ 8K tokens, reasonable limit for tool results
+			const maxToolResultSize = 32000
+			if len(result) > maxToolResultSize {
+				result = result[:maxToolResultSize] + "\n\n[... truncated - result too large]"
+			}
 
 			// Add tool result to session
 			r.session.AddToolResult(tc.ID, tc.Name, result)
@@ -232,8 +248,9 @@ func (r *REPL) displayToolCall(name, args string) {
 func (r *REPL) displayToolResult(name, result string) {
 	// Truncate long results for display
 	display := result
-	if len(display) > 500 {
-		display = display[:500] + "... (truncated)"
+	maxDisplay := 2000 // Show more of tool results
+	if len(display) > maxDisplay {
+		display = display[:maxDisplay] + fmt.Sprintf("\n... (truncated, %d more chars)", len(result)-maxDisplay)
 	}
 	fmt.Printf("  Result: %s\n", display)
 }

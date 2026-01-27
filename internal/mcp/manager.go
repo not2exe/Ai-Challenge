@@ -192,3 +192,14 @@ func (m *Manager) ServerToolCount() map[string]int {
 	}
 	return counts
 }
+
+// HasFilesystemTools checks if filesystem tools (read_text_file, directory_tree, etc.) are available.
+func (m *Manager) HasFilesystemTools() bool {
+	filesystemTools := []string{"read_text_file", "read_file", "directory_tree", "list_directory", "search_files"}
+	for _, toolName := range filesystemTools {
+		if _, ok := m.tools[toolName]; ok {
+			return true
+		}
+	}
+	return false
+}

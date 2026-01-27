@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,15 +33,40 @@ type Config struct {
 }
 
 type MCPConfig struct {
-	Enabled bool              `koanf:"enabled"`
-	Servers []MCPServerConfig `koanf:"servers"`
+	Enabled    bool              `koanf:"enabled"`
+	ConfigFile string            `koanf:"config_file"` // Path to mcp.json (default: ~/.cli-chat/mcp.json)
+	Servers    []MCPServerConfig `koanf:"servers"`     // Inline servers (legacy YAML format)
 }
 
 type MCPServerConfig struct {
-	Name    string   `koanf:"name"`
-	Command string   `koanf:"command"`
-	Args    []string `koanf:"args"`
-	Env     []string `koanf:"env"` // Environment variables like GITHUB_TOKEN=xxx
+	Name    string            `koanf:"name" json:"-"` // Name comes from JSON key
+	Command string            `koanf:"command" json:"command"`
+	Args    []string          `koanf:"args" json:"args"`
+	Env     []string          `koanf:"env" json:"-"`           // Legacy YAML format: ["KEY=value"]
+	EnvMap  map[string]string `koanf:"-" json:"env,omitempty"` // JSON format: {"KEY": "value"}
+}
+
+// MCPJSONConfig represents the Claude Desktop-style JSON config format.
+// File: ~/.cli-chat/mcp.json
+//
+// Example:
+//
+//	{
+//	  "mcpServers": {
+//	    "ios": {
+//	      "command": "./mcp-ios",
+//	      "args": [],
+//	      "env": {"DEBUG": "1"}
+//	    },
+//	    "github": {
+//	      "command": "npx",
+//	      "args": ["-y", "@modelcontextprotocol/server-github"],
+//	      "env": {"GITHUB_TOKEN": "ghp_xxx"}
+//	    }
+//	  }
+//	}
+type MCPJSONConfig struct {
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
 type DeepSeekConfig struct {
@@ -135,6 +161,12 @@ func Load(configPath string) (*Config, error) {
 
 	cfg.Session.HistoryFile = expandPath(cfg.Session.HistoryFile)
 
+	// Load MCP servers from JSON config file
+	if err := cfg.LoadMCPServers(); err != nil {
+		// Log warning but don't fail - MCP is optional
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
+
 	return &cfg, nil
 }
 
@@ -218,4 +250,62 @@ func expandPath(path string) string {
 	}
 
 	return path
+}
+
+// LoadMCPServers loads MCP server configuration from the JSON config file.
+// It merges with any servers defined in the YAML config.
+func (c *Config) LoadMCPServers() error {
+	// Determine config file path
+	configFile := c.MCP.ConfigFile
+	if configFile == "" {
+		configFile = "~/.cli-chat/mcp.json"
+	}
+	configFile = expandPath(configFile)
+
+	// Check if file exists
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No JSON config file, just use YAML servers (if any)
+			return nil
+		}
+		return fmt.Errorf("failed to read MCP config file: %w", err)
+	}
+
+	// Parse JSON
+	var jsonConfig MCPJSONConfig
+	if err := json.Unmarshal(data, &jsonConfig); err != nil {
+		return fmt.Errorf("failed to parse MCP config file %s: %w", configFile, err)
+	}
+
+	// Convert JSON format to MCPServerConfig slice
+	for name, server := range jsonConfig.MCPServers {
+		server.Name = name
+
+		// Convert EnvMap to Env slice for backwards compatibility
+		if server.EnvMap != nil && len(server.Env) == 0 {
+			server.Env = make([]string, 0, len(server.EnvMap))
+			for k, v := range server.EnvMap {
+				server.Env = append(server.Env, k+"="+v)
+			}
+		}
+
+		c.MCP.Servers = append(c.MCP.Servers, server)
+	}
+
+	// Enable MCP if we have any servers
+	if len(c.MCP.Servers) > 0 {
+		c.MCP.Enabled = true
+	}
+
+	return nil
+}
+
+// GetMCPConfigPath returns the path to the MCP JSON config file.
+func (c *Config) GetMCPConfigPath() string {
+	configFile := c.MCP.ConfigFile
+	if configFile == "" {
+		configFile = "~/.cli-chat/mcp.json"
+	}
+	return expandPath(configFile)
 }

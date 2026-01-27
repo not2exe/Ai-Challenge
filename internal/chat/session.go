@@ -14,6 +14,7 @@ type Session struct {
 	history         *History
 	systemPrompt    string
 	formatPrompt    string
+	toolsPrompt     string // Additional prompt for available tools guidance
 	clarifyEnabled  bool
 	config          *config.ModelConfig
 	contextMgr      *ContextManager
@@ -108,6 +109,16 @@ func (s *Session) ClearFormatPrompt() {
 	s.formatPrompt = ""
 }
 
+// SetToolsPrompt sets additional guidance for available tools.
+func (s *Session) SetToolsPrompt(prompt string) {
+	s.toolsPrompt = prompt
+}
+
+// GetToolsPrompt returns the current tools prompt.
+func (s *Session) GetToolsPrompt() string {
+	return s.toolsPrompt
+}
+
 func (s *Session) SetClarifyMode(enabled bool) {
 	s.clarifyEnabled = enabled
 }
@@ -155,7 +166,7 @@ func (s *Session) buildAPIRequest(includeClarify bool) api.MessageRequest {
 		clarifyPrompt = GetClarifyPrompt()
 	}
 
-	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.formatPrompt, clarifyPrompt)
+	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.toolsPrompt, s.formatPrompt, clarifyPrompt)
 
 	return api.MessageRequest{
 		Messages:    s.history.GetAll(),
@@ -272,6 +283,16 @@ func (s *Session) GetContextManager() *ContextManager {
 	return s.contextMgr
 }
 
+// AddAssistantMessageWithToolCalls adds an assistant message that contains tool call requests.
+// This must be called before AddToolResult to maintain proper message ordering.
+func (s *Session) AddAssistantMessageWithToolCalls(content string, toolCalls []api.ToolCall) {
+	s.history.Add(api.Message{
+		Role:      "assistant",
+		Content:   content,
+		ToolCalls: toolCalls,
+	})
+}
+
 // AddToolResult adds a tool execution result to the conversation history.
 func (s *Session) AddToolResult(toolCallID, toolName, result string) {
 	s.history.Add(api.Message{
@@ -283,7 +304,7 @@ func (s *Session) AddToolResult(toolCallID, toolName, result string) {
 
 // BuildAPIRequestWithToolResults builds a request that includes pending tool results.
 func (s *Session) BuildAPIRequestWithToolResults() api.MessageRequest {
-	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.formatPrompt, "")
+	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.toolsPrompt, s.formatPrompt, "")
 
 	return api.MessageRequest{
 		Messages:    s.history.GetAll(),
