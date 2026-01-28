@@ -14,6 +14,7 @@ import (
 	"github.com/notexe/cli-chat/internal/config"
 	"github.com/notexe/cli-chat/internal/mcp"
 	"github.com/notexe/cli-chat/internal/repl"
+	"github.com/notexe/cli-chat/internal/scheduler"
 )
 
 func main() {
@@ -109,6 +110,18 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start scheduler in background if enabled
+	if cfg.Scheduler.Enabled && mcpManager != nil {
+		if cfg.Scheduler.Telegram.BotToken != "" && cfg.Scheduler.Telegram.ChatID != "" {
+			tg := scheduler.NewTelegramSender(cfg.Scheduler.Telegram.BotToken, cfg.Scheduler.Telegram.ChatID)
+			sched := scheduler.New(providerInstance, mcpManager, tg, cfg)
+			go sched.Run(ctx)
+			fmt.Println("Scheduler started in background.")
+		} else {
+			fmt.Fprintln(os.Stderr, "Warning: Scheduler enabled but telegram bot_token / chat_id not configured. Skipping.")
+		}
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

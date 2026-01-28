@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/go-deepseek/deepseek/request"
@@ -47,6 +48,11 @@ func NewManager() *Manager {
 
 // AddServer connects to an MCP server and registers its tools.
 func (m *Manager) AddServer(ctx context.Context, cfg ServerConfig) error {
+	// Verify command exists before spawning to avoid mcp-go nil reader panic
+	if _, err := exec.LookPath(cfg.Command); err != nil {
+		return fmt.Errorf("MCP server command not found for %s: %w", cfg.Name, err)
+	}
+
 	// Build environment
 	env := os.Environ()
 	for _, e := range cfg.Env {

@@ -19,17 +19,31 @@ const (
 )
 
 type Config struct {
-	Provider string         `koanf:"provider"`
-	DeepSeek DeepSeekConfig `koanf:"deepseek"`
-	Ollama   OllamaConfig   `koanf:"ollama"`
-	Model    ModelConfig    `koanf:"model"`
-	Session  SessionConfig  `koanf:"session"`
-	UI       UIConfig       `koanf:"ui"`
-	Context  ContextConfig  `koanf:"context"`
-	MCP      MCPConfig      `koanf:"mcp"`
+	Provider  string          `koanf:"provider"`
+	DeepSeek  DeepSeekConfig  `koanf:"deepseek"`
+	Ollama    OllamaConfig    `koanf:"ollama"`
+	Model     ModelConfig     `koanf:"model"`
+	Session   SessionConfig   `koanf:"session"`
+	UI        UIConfig        `koanf:"ui"`
+	Context   ContextConfig   `koanf:"context"`
+	MCP       MCPConfig       `koanf:"mcp"`
+	Scheduler SchedulerConfig `koanf:"scheduler"`
 
 	// Deprecated: Use DeepSeek config instead. Kept for backwards compatibility.
 	API APIConfig `koanf:"api"`
+}
+
+type SchedulerConfig struct {
+	Enabled        bool           `koanf:"enabled"`
+	Interval       int            `koanf:"interval"`
+	PromptTemplate string         `koanf:"prompt_template"`
+	SystemPrompt   string         `koanf:"system_prompt"`
+	Telegram       TelegramConfig `koanf:"telegram"`
+}
+
+type TelegramConfig struct {
+	BotToken string `koanf:"bot_token"`
+	ChatID   string `koanf:"chat_id"`
 }
 
 type MCPConfig struct {

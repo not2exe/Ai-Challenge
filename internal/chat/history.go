@@ -19,8 +19,29 @@ func NewHistory(maxSize int) *History {
 func (h *History) Add(msg api.Message) {
 	h.messages = append(h.messages, msg)
 
-	if len(h.messages) > h.maxSize {
+	for len(h.messages) > h.maxSize {
 		h.messages = h.messages[1:]
+	}
+
+	// Ensure we never start with orphaned tool messages.
+	// A "tool" message must follow an "assistant" message with tool_calls.
+	h.dropOrphanedToolMessages()
+}
+
+// dropOrphanedToolMessages removes leading tool messages that lost
+// their preceding assistant+tool_calls message due to truncation.
+func (h *History) dropOrphanedToolMessages() {
+	for len(h.messages) > 0 && h.messages[0].Role == "tool" {
+		h.messages = h.messages[1:]
+	}
+	// Also drop an assistant message with tool_calls if the following
+	// tool results were already trimmed away.
+	if len(h.messages) > 0 && h.messages[0].Role == "assistant" && len(h.messages[0].ToolCalls) > 0 {
+		// Check if the next message is a matching tool result
+		if len(h.messages) < 2 || h.messages[1].Role != "tool" {
+			h.messages = h.messages[1:]
+			h.dropOrphanedToolMessages() // recurse in case more orphans
+		}
 	}
 }
 
@@ -43,7 +64,6 @@ func (h *History) IsEmpty() bool {
 // ReplaceWithSummary replaces old messages with a summary, keeping the last keepLast messages.
 func (h *History) ReplaceWithSummary(summary api.Message, keepLast int) {
 	if len(h.messages) <= keepLast {
-		// Nothing to replace, just prepend summary
 		h.messages = append([]api.Message{summary}, h.messages...)
 		return
 	}
@@ -54,4 +74,5 @@ func (h *History) ReplaceWithSummary(summary api.Message, keepLast int) {
 
 	// Build new history: summary + kept messages
 	h.messages = append([]api.Message{summary}, kept...)
+	h.dropOrphanedToolMessages()
 }
