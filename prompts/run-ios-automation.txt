@@ -1,0 +1,32 @@
+Automate iOS app testing workflow with the following steps:
+
+1. Boot the iPhone 15 simulator and wait for it to be ready
+
+2. Build my iOS app:
+   - Project: [REPLACE_WITH_YOUR_PROJECT_PATH]
+   - Scheme: [REPLACE_WITH_YOUR_SCHEME]
+   - Target: iPhone 15 simulator
+
+3. Install and launch the built app
+
+4. Take the first screenshot of the initial app state
+
+5. Find and tap on the challenge card:
+   - Use get_elements_with_coords to discover tappable elements
+   - Look for an element with label or name containing "challenge" or "Challenge"
+   - Tap on that element
+   - Wait 2 seconds for the screen to load
+
+6. Take a second screenshot showing the challenge detail view
+
+7. Send results to Telegram:
+   - Send screenshot 1 with caption: "📱 Initial App State"
+   - Send screenshot 2 with caption: "🎯 Challenge Detail View"
+   - Send a summary message with:
+     * Build status
+     * App bundle ID
+     * Whether the challenge card was found and tapped successfully
+     * Any errors encountered
+     * Timestamps of each step
+
+Please execute this workflow and report any issues. If any step fails, send an error report to Telegram with details.

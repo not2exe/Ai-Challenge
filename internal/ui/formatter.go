@@ -267,6 +267,7 @@ func (f *Formatter) FormatHelp() string {
 		"  /provider            - Show current provider and model",
 		"  /temp <value>        - Set temperature (0-2), or show current if no value",
 		"  /file <filename>     - Send file contents as prompt",
+		"  /paste               - Enter paste mode for multi-line content",
 		"  /format json         - Enable JSON response format",
 		"  /format show         - Display current format setting",
 		"  /format clear        - Remove format restrictions",
@@ -280,6 +281,12 @@ func (f *Formatter) FormatHelp() string {
 		"  /mcp tools           - List available MCP tools",
 		"  /count               - Show message count in conversation",
 		"  /quit or /exit       - Exit the chat",
+		"",
+		"Multi-line input:",
+		"  Method 1 - Type naturally: Start typing, press Enter for new lines,",
+		"             type 'END' on a new line (or press Enter twice) to submit",
+		"  Method 2 - Paste mode: Type /paste, paste your content, then type 'END'",
+		"  Commands (starting with /) are always single-line.",
 		"",
 		"CLI flags:",
 		"  --provider <name>    - Use provider (deepseek, ollama)",
@@ -296,6 +303,7 @@ func (f *Formatter) FormatHelp() string {
 		"  - For Ollama: ollama pull <model> to download models locally",
 		"  - Context is auto-summarized at 70% to preserve conversation flow",
 		"  - MCP tools allow AI to interact with GitHub, filesystem, etc.",
+		"  - Use /paste for pasting multi-line content (end with 'END')",
 		"",
 	}
 
