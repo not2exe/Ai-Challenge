@@ -4,97 +4,160 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
 )
 
+// Styles for input UI
+var (
+	pastedStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245")).
+		Italic(true)
+)
+
+// pasteTimeout - lines arriving within this time are considered part of a paste
+const pasteTimeout = 50 * time.Millisecond
+
+// inputResult holds a line read from readline
+type inputResult struct {
+	line string
+	err  error
+}
+
+// inputReader manages async reading from readline
+type inputReader struct {
+	rl       *readline.Instance
+	lineCh   chan inputResult
+	running  bool
+}
+
+// newInputReader creates a new input reader
+func newInputReader(rl *readline.Instance) *inputReader {
+	return &inputReader{
+		rl:     rl,
+		lineCh: make(chan inputResult, 10), // Buffer for paste detection
+	}
+}
+
+// start begins reading input in background
+func (ir *inputReader) start() {
+	if ir.running {
+		return
+	}
+	ir.running = true
+	go ir.readLoop()
+}
+
+// readLoop continuously reads lines and sends them to the channel
+func (ir *inputReader) readLoop() {
+	for ir.running {
+		line, err := ir.rl.Readline()
+		ir.lineCh <- inputResult{line, err}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// stop stops the input reader
+func (ir *inputReader) stop() {
+	ir.running = false
+}
+
+// readWithPasteDetection reads input with paste detection
+func (ir *inputReader) readWithPasteDetection() (string, bool, error) {
+	// Wait for first line (blocking)
+	result := <-ir.lineCh
+	if result.err != nil {
+		return "", false, result.err
+	}
+
+	line := result.line
+	trimmed := strings.TrimSpace(line)
+
+	// Check for embedded newlines (bracketed paste)
+	if strings.Contains(line, "\n") {
+		return strings.TrimSpace(line), true, nil
+	}
+
+	// Collect any additional lines that arrive quickly (paste detection)
+	lines := []string{line}
+
+	for {
+		select {
+		case nextResult := <-ir.lineCh:
+			if nextResult.err != nil {
+				// Error - return what we have
+				if len(lines) == 1 {
+					return trimmed, false, nil
+				}
+				return strings.TrimSpace(strings.Join(lines, "\n")), true, nil
+			}
+			lines = append(lines, nextResult.line)
+			// Continue collecting
+
+		case <-time.After(pasteTimeout):
+			// No more lines in time window
+			if len(lines) == 1 {
+				return trimmed, false, nil
+			}
+			return strings.TrimSpace(strings.Join(lines, "\n")), true, nil
+		}
+	}
+}
+
 func (r *REPL) readInput() (string, error) {
-	// Read first line
-	line, err := r.rl.Readline()
+	// Initialize input reader if needed
+	if r.inputReader == nil {
+		r.inputReader = newInputReader(r.rl)
+		r.inputReader.start()
+	}
+
+	// Read with paste detection
+	content, wasPaste, err := r.inputReader.readWithPasteDetection()
 	if err != nil {
 		return "", err
 	}
 
-	trimmed := strings.TrimSpace(line)
-
-	// Check for paste mode command
-	if trimmed == "/paste" {
-		return r.readPasteMode()
-	}
+	trimmed := strings.TrimSpace(content)
 
 	// If it's a command, return immediately
 	if strings.HasPrefix(trimmed, "/") {
 		return trimmed, nil
 	}
 
-	// Check if line is empty or just whitespace
+	// Check if empty
 	if trimmed == "" {
 		return "", nil
 	}
 
-	// Start collecting lines
-	var lines []string
-	lines = append(lines, line)
-
-	// Enter multi-line mode
-	fmt.Print("\033[90m(Press Enter twice to submit, or type 'END' on new line)\033[0m\n")
-	r.rl.SetPrompt("... ")
-
-	for {
-		nextLine, err := r.rl.Readline()
-		if err != nil {
-			r.rl.SetPrompt("Type here: ")
-			return "", err
-		}
-
-		nextTrimmed := strings.TrimSpace(nextLine)
-
-		// Check for END terminator
-		if nextTrimmed == "END" || nextTrimmed == "<<<" {
-			break
-		}
-
-		// If line is empty, submit
-		if nextTrimmed == "" {
-			break
-		}
-
-		lines = append(lines, nextLine)
+	// Show paste indicator if it was a paste
+	if wasPaste {
+		lineCount := strings.Count(content, "\n") + 1
+		r.showPastedIndicator(lineCount)
 	}
 
-	r.rl.SetPrompt("Type here: ")
-	result := strings.Join(lines, "\n")
-	return strings.TrimSpace(result), nil
+	return trimmed, nil
 }
 
-// readPasteMode enters paste mode for multi-line content
-func (r *REPL) readPasteMode() (string, error) {
-	fmt.Println("\033[92m=== PASTE MODE ===\033[0m")
-	fmt.Println("\033[90mPaste your content, then type 'END' on a new line and press Enter\033[0m")
-	fmt.Println()
-
-	var lines []string
-	r.rl.SetPrompt("")
-
-	for {
-		line, err := r.rl.Readline()
-		if err != nil {
-			r.rl.SetPrompt("Type here: ")
-			return "", err
-		}
-
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "END" || trimmed == "<<<" {
-			break
-		}
-
-		lines = append(lines, line)
+// showPastedIndicator clears the pasted lines and shows "[Pasted X lines]"
+func (r *REPL) showPastedIndicator(lineCount int) {
+	// Clear the pasted content and show indicator
+	// Move up for each line we need to clear
+	for i := 0; i < lineCount; i++ {
+		fmt.Print("\033[1A") // Move up
+		fmt.Print("\033[K")  // Clear line
 	}
 
-	r.rl.SetPrompt("Type here: ")
-	result := strings.Join(lines, "\n")
-	fmt.Println("\033[92m=== END PASTE MODE ===\033[0m")
-	return strings.TrimSpace(result), nil
+	plural := "lines"
+	if lineCount == 1 {
+		plural = "line"
+	}
+
+	indicator := pastedStyle.Render(fmt.Sprintf("[Pasted %d %s]", lineCount, plural))
+	fmt.Println(getPrompt() + indicator)
 }
 
 func (r *REPL) parseCommand(input string) (bool, string, string) {
@@ -113,9 +176,19 @@ func (r *REPL) parseCommand(input string) (bool, string, string) {
 	return true, command, args
 }
 
+// getPrompt returns the styled prompt string
+func getPrompt() string {
+	promptStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("62"))
+	arrowStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("114")).
+		Bold(true)
+	return promptStyle.Render("you") + arrowStyle.Render(" > ")
+}
+
 func setupReadline() (*readline.Instance, error) {
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:              "Type here: ",
+		Prompt:              getPrompt(),
 		HistoryFile:         "",
 		InterruptPrompt:     "^C",
 		EOFPrompt:           "exit",

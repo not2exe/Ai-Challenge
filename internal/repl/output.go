@@ -18,26 +18,28 @@ func (r *REPL) displayResponse(response *api.MessageResponse, duration time.Dura
 
 	if r.session.GetFormatPrompt() != "" {
 		if chat.HasMarkdownCodeBlocks(response.Content) {
-			errorStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("196")).
+			// Modern styled error box
+			borderStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("203"))
+			titleStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("203")).
 				Bold(true)
+			textStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252"))
 
 			fmt.Println()
-			fmt.Println(errorStyle.Render("╔════════════════════════════════════════════════════════════════════╗"))
-			fmt.Println(errorStyle.Render("║                    ⚠️  MODEL FORMAT ERROR ⚠️                      ║"))
-			fmt.Println(errorStyle.Render("╠════════════════════════════════════════════════════════════════════╣"))
-			fmt.Println(errorStyle.Render("║ The model responded with markdown code blocks (```)               ║"))
-			fmt.Println(errorStyle.Render("║ instead of raw JSON as instructed.                                 ║"))
-			fmt.Println(errorStyle.Render("║                                                                    ║"))
-			fmt.Println(errorStyle.Render("║ This violates the format instructions.                            ║"))
-			fmt.Println(errorStyle.Render("║ The response will be cleaned automatically, but the model         ║"))
-			fmt.Println(errorStyle.Render("║ should follow instructions properly.                               ║"))
-			fmt.Println(errorStyle.Render("╚════════════════════════════════════════════════════════════════════╝"))
+			fmt.Println(borderStyle.Render("╭──────────────────────────────────────────╮"))
+			fmt.Println(borderStyle.Render("│ ") + titleStyle.Render("Format Warning") + borderStyle.Render("                          │"))
+			fmt.Println(borderStyle.Render("├──────────────────────────────────────────┤"))
+			fmt.Println(borderStyle.Render("│ ") + textStyle.Render("Model used markdown code blocks") + borderStyle.Render("        │"))
+			fmt.Println(borderStyle.Render("│ ") + textStyle.Render("Auto-cleaning response...") + borderStyle.Render("              │"))
+			fmt.Println(borderStyle.Render("╰──────────────────────────────────────────╯"))
 			fmt.Println()
 		}
 		displayContent = chat.CleanMarkdownCodeBlocks(displayContent)
 	}
 
+	fmt.Println()
 	fmt.Println(r.formatter.FormatAssistantMessage(displayContent))
 
 	if r.session.GetFormatPrompt() != "" {

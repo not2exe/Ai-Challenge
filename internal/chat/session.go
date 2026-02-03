@@ -15,6 +15,7 @@ type Session struct {
 	systemPrompt    string
 	formatPrompt    string
 	toolsPrompt     string // Additional prompt for available tools guidance
+	askUserEnabled  bool   // Enable ask_user tool for interactive questions
 	clarifyEnabled  bool
 	config          *config.ModelConfig
 	contextMgr      *ContextManager
@@ -31,21 +32,23 @@ type SessionData struct {
 
 func NewSession(cfg *config.ModelConfig, maxHistory int) *Session {
 	return &Session{
-		history:       NewHistory(maxHistory),
-		systemPrompt:  cfg.SystemPrompt,
-		config:        cfg,
-		contextMgr:    NewContextManager(0.70, 0.40), // Default thresholds
-		autoSummarize: true,
+		history:        NewHistory(maxHistory),
+		systemPrompt:   cfg.SystemPrompt,
+		config:         cfg,
+		contextMgr:     NewContextManager(0.70, 0.40), // Default thresholds
+		autoSummarize:  true,
+		askUserEnabled: true, // Enable ask_user tool by default
 	}
 }
 
 // NewSessionWithContext creates a new session with custom context configuration.
 func NewSessionWithContext(cfg *config.ModelConfig, maxHistory int, contextCfg *config.ContextConfig) *Session {
 	session := &Session{
-		history:       NewHistory(maxHistory),
-		systemPrompt:  cfg.SystemPrompt,
-		config:        cfg,
-		autoSummarize: true,
+		history:        NewHistory(maxHistory),
+		systemPrompt:   cfg.SystemPrompt,
+		config:         cfg,
+		autoSummarize:  true,
+		askUserEnabled: true, // Enable ask_user tool by default
 	}
 
 	if contextCfg != nil {
@@ -127,6 +130,16 @@ func (s *Session) IsClarifyEnabled() bool {
 	return s.clarifyEnabled
 }
 
+// SetAskUserEnabled enables or disables the ask_user interactive tool.
+func (s *Session) SetAskUserEnabled(enabled bool) {
+	s.askUserEnabled = enabled
+}
+
+// IsAskUserEnabled returns whether the ask_user tool is enabled.
+func (s *Session) IsAskUserEnabled() bool {
+	return s.askUserEnabled
+}
+
 func (s *Session) SetTemperature(temp float64) error {
 	if temp < 0 || temp > 2 {
 		return fmt.Errorf("temperature must be between 0 and 2")
@@ -166,7 +179,13 @@ func (s *Session) buildAPIRequest(includeClarify bool) api.MessageRequest {
 		clarifyPrompt = GetClarifyPrompt()
 	}
 
-	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.toolsPrompt, s.formatPrompt, clarifyPrompt)
+	// Add ask_user prompt to guide the model on when to use the tool
+	var askUserPrompt string
+	if s.askUserEnabled {
+		askUserPrompt = AskUserToolPrompt
+	}
+
+	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.toolsPrompt, s.formatPrompt, clarifyPrompt, askUserPrompt)
 
 	return api.MessageRequest{
 		Messages:    s.history.GetAll(),

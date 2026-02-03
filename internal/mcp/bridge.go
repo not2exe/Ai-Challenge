@@ -39,3 +39,59 @@ func ToDeepSeekTools(mcpTools []Tool) []request.Tool {
 
 	return tools
 }
+
+// GetAskUserTool returns the ask_user tool definition for interactive questions
+func GetAskUserTool() request.Tool {
+	return request.Tool{
+		Type: "function",
+		Function: &request.ToolFunction{
+			Name:        "ask_user",
+			Description: "Present interactive multiple-choice questions to the user. Use this when you want the user to choose from specific options or clarify their preferences.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"questions": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"question": map[string]interface{}{
+									"type":        "string",
+									"description": "The question to ask the user",
+								},
+								"header": map[string]interface{}{
+									"type":        "string",
+									"description": "Short label for the question (1-3 words)",
+								},
+								"options": map[string]interface{}{
+									"type": "array",
+									"items": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"label": map[string]interface{}{
+												"type":        "string",
+												"description": "The option text",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Optional explanation of the option",
+											},
+										},
+										"required": []string{"label"},
+									},
+									"description": "2-5 options for the user to choose from",
+								},
+								"multiSelect": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Allow multiple selections (default: false)",
+								},
+							},
+							"required": []string{"question", "options"},
+						},
+					},
+				},
+				"required": []string{"questions"},
+			},
+		},
+	}
+}

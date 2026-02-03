@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,34 +10,59 @@ import (
 )
 
 var (
+	// Modern color palette
 	UserStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(lipgloss.Color("81")).  // Bright cyan
 			Bold(true)
 
 	AssistantStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42"))
+			Foreground(lipgloss.Color("114"))  // Soft green
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
+			Foreground(lipgloss.Color("203")).  // Coral red
 			Bold(true)
 
 	InfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("226"))
+			Foreground(lipgloss.Color("222"))  // Warm yellow
 
 	SystemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("201")).
+			Foreground(lipgloss.Color("183")).  // Soft purple
 			Italic(true)
 
 	StatusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("245")).  // Medium gray
 			Italic(true)
 
 	TokenStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
+			Foreground(lipgloss.Color("240"))  // Dim gray
 
 	ToolStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
+			Foreground(lipgloss.Color("215")).  // Orange
 			Bold(true)
+
+	// Box styles for modern UI
+	BoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).  // Soft blue border
+			Padding(0, 1)
+
+	HeaderStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("81")).
+			Bold(true)
+
+	DimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+
+	SuccessStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("114")).  // Green
+			Bold(true)
+
+	WarningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("222")).  // Yellow
+			Bold(true)
+
+	AccentStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("147"))  // Light purple
 )
 
 type Formatter struct {
@@ -225,91 +251,210 @@ func (f *Formatter) FormatWelcome(model string, provider ...string) string {
 		providerName = formatProviderName(provider[0])
 	}
 
-	lines := []string{
-		"",
-		fmt.Sprintf("Welcome to CLI Chat with %s!", providerName),
-		fmt.Sprintf("Model: %s", model),
-		"Type /help for available commands or start chatting.",
-		"",
-	}
-
 	if f.colored {
-		welcome := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("75")).
+		// Modern styled welcome
+		titleStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("81")).
 			Bold(true)
 
-		result := ""
-		for i, line := range lines {
-			if i == 1 {
-				result += welcome.Render(line) + "\n"
-			} else {
-				result += line + "\n"
+		subtitleStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+
+		labelStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+
+		valueStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("114"))
+
+		borderStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("62"))
+
+		// Build welcome box
+		topBorder := borderStyle.Render("╭─────────────────────────────────────────╮")
+		bottomBorder := borderStyle.Render("╰─────────────────────────────────────────╯")
+		sideBorder := borderStyle.Render("│")
+
+		title := titleStyle.Render(fmt.Sprintf("CLI Chat • %s", providerName))
+		modelLine := labelStyle.Render("Model: ") + valueStyle.Render(model)
+		helpLine := subtitleStyle.Render("Type /help for commands")
+
+		// Pad lines to fit box
+		padLine := func(content string, width int) string {
+			contentLen := lipgloss.Width(content)
+			if contentLen < width {
+				return content + strings.Repeat(" ", width-contentLen)
 			}
+			return content
 		}
-		return result
+
+		boxWidth := 39
+		lines := []string{
+			"",
+			topBorder,
+			sideBorder + " " + padLine(title, boxWidth) + " " + sideBorder,
+			sideBorder + " " + padLine(modelLine, boxWidth) + " " + sideBorder,
+			sideBorder + " " + padLine("", boxWidth) + " " + sideBorder,
+			sideBorder + " " + padLine(helpLine, boxWidth) + " " + sideBorder,
+			bottomBorder,
+			"",
+		}
+
+		return strings.Join(lines, "\n")
 	}
 
-	result := ""
-	for _, line := range lines {
-		result += line + "\n"
+	// Plain text fallback
+	lines := []string{
+		"",
+		fmt.Sprintf("CLI Chat • %s", providerName),
+		fmt.Sprintf("Model: %s", model),
+		"Type /help for commands",
+		"",
 	}
-	return result
+
+	return strings.Join(lines, "\n")
 }
 
 func (f *Formatter) FormatHelp() string {
+	if f.colored {
+		headerStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("81")).
+			Bold(true)
+
+		cmdStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("114"))
+
+		descStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252"))
+
+		sectionStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("147")).
+			Bold(true)
+
+		dimStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+
+		formatCmd := func(cmd, desc string) string {
+			return "  " + cmdStyle.Render(cmd) + " " + descStyle.Render(desc)
+		}
+
+		lines := []string{
+			"",
+			headerStyle.Render("Commands"),
+			"",
+			sectionStyle.Render("General"),
+			formatCmd("/help", "Show this help"),
+			formatCmd("/clear", "Clear conversation"),
+			formatCmd("/quit", "Exit chat"),
+			"",
+			sectionStyle.Render("Configuration"),
+			formatCmd("/system <prompt>", "Set system prompt"),
+			formatCmd("/show", "Show system prompt"),
+			formatCmd("/provider", "Show provider info"),
+			formatCmd("/temp <0-2>", "Set temperature"),
+			"",
+			sectionStyle.Render("Input"),
+			formatCmd("/file <path>", "Send file content"),
+			"",
+			sectionStyle.Render("Features"),
+			formatCmd("/clarify on|off", "Toggle clarifying questions"),
+			formatCmd("/askuser on|off", "Toggle interactive menus"),
+			formatCmd("/format json|clear", "Response format"),
+			formatCmd("/context", "Context window status"),
+			formatCmd("/mcp tools", "List MCP tools"),
+			"",
+			headerStyle.Render("Tips"),
+			dimStyle.Render("  Ctrl+C or Ctrl+D to exit"),
+			dimStyle.Render("  /clarify on for interactive clarification"),
+			dimStyle.Render("  /format json for structured responses"),
+			"",
+		}
+
+		return strings.Join(lines, "\n")
+	}
+
+	// Plain text fallback
 	lines := []string{
 		"",
-		"Available commands:",
-		"  /help                - Show this help message",
-		"  /clear               - Clear conversation history",
-		"  /system <prompt>     - Update system prompt",
-		"  /show                - Show current system prompt",
-		"  /provider            - Show current provider and model",
-		"  /temp <value>        - Set temperature (0-2), or show current if no value",
-		"  /file <filename>     - Send file contents as prompt",
-		"  /paste               - Enter paste mode for multi-line content",
-		"  /format json         - Enable JSON response format",
-		"  /format show         - Display current format setting",
-		"  /format clear        - Remove format restrictions",
-		"  /clarify on          - Enable clarifying questions mode",
-		"  /clarify off         - Disable clarifying questions mode",
-		"  /clarify show        - Show clarify mode status",
-		"  /context             - Show context window usage",
-		"  /context on          - Enable auto-summarization",
-		"  /context off         - Disable auto-summarization",
-		"  /mcp                 - Show MCP server status",
-		"  /mcp tools           - List available MCP tools",
-		"  /count               - Show message count in conversation",
-		"  /quit or /exit       - Exit the chat",
-		"",
-		"Multi-line input:",
-		"  Method 1 - Type naturally: Start typing, press Enter for new lines,",
-		"             type 'END' on a new line (or press Enter twice) to submit",
-		"  Method 2 - Paste mode: Type /paste, paste your content, then type 'END'",
-		"  Commands (starting with /) are always single-line.",
-		"",
-		"CLI flags:",
-		"  --provider <name>    - Use provider (deepseek, ollama)",
-		"  --model <name>       - Override model name",
-		"  --system-prompt      - Override system prompt",
-		"  --no-color           - Disable colored output",
-		"",
-		"Tips:",
-		"  - Press Ctrl+C or Ctrl+D to exit",
-		"  - Use /clarify on to have AI ask questions before answering",
-		"  - Your conversation history is maintained throughout the session",
-		"  - Use /format json to get structured responses with tags, steps, URLs, etc.",
-		"  - Temperature controls randomness: 0 = focused, 2 = creative",
-		"  - For Ollama: ollama pull <model> to download models locally",
-		"  - Context is auto-summarized at 70% to preserve conversation flow",
-		"  - MCP tools allow AI to interact with GitHub, filesystem, etc.",
-		"  - Use /paste for pasting multi-line content (end with 'END')",
+		"Commands:",
+		"  /help                - Show help",
+		"  /clear               - Clear history",
+		"  /system <prompt>     - Set system prompt",
+		"  /show                - Show system prompt",
+		"  /provider            - Show provider",
+		"  /temp <value>        - Set temperature",
+		"  /file <filename>     - Send file",
+		"  /clarify on|off      - Toggle clarification",
+		"  /format json|clear   - Response format",
+		"  /context             - Context status",
+		"  /mcp tools           - MCP tools",
+		"  /quit                - Exit",
 		"",
 	}
 
-	result := ""
-	for _, line := range lines {
-		result += line + "\n"
+	return strings.Join(lines, "\n")
+}
+
+// FormatPrompt returns a styled input prompt
+func (f *Formatter) FormatPrompt() string {
+	if f.colored {
+		promptStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("62"))
+		arrowStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("114")).
+			Bold(true)
+		return promptStyle.Render("you") + arrowStyle.Render(" > ")
 	}
-	return result
+	return "you > "
+}
+
+// FormatContinuePrompt returns a styled continuation prompt
+func (f *Formatter) FormatContinuePrompt() string {
+	if f.colored {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Render("... ")
+	}
+	return "... "
+}
+
+// FormatPasteInfo returns styled paste mode info
+func (f *Formatter) FormatPasteInfo(lineCount int) string {
+	if f.colored {
+		countStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("114")).
+			Bold(true)
+		textStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+
+		plural := "lines"
+		if lineCount == 1 {
+			plural = "line"
+		}
+		return textStyle.Render("Pasted ") + countStyle.Render(fmt.Sprintf("%d", lineCount)) + textStyle.Render(fmt.Sprintf(" %s", plural))
+	}
+	plural := "lines"
+	if lineCount == 1 {
+		plural = "line"
+	}
+	return fmt.Sprintf("Pasted %d %s", lineCount, plural)
+}
+
+// FormatBox wraps content in a styled box
+func (f *Formatter) FormatBox(title, content string) string {
+	if f.colored {
+		titleStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("81")).
+			Bold(true)
+
+		borderStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(0, 1)
+
+		header := titleStyle.Render(title)
+		box := borderStyle.Render(content)
+
+		return header + "\n" + box
+	}
+	return title + "\n" + content
 }

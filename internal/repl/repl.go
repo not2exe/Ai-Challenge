@@ -2,13 +2,16 @@ package repl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
+	"github.com/go-deepseek/deepseek/request"
 	"github.com/notexe/cli-chat/internal/api"
 	"github.com/notexe/cli-chat/internal/chat"
 	"github.com/notexe/cli-chat/internal/config"
@@ -17,13 +20,14 @@ import (
 )
 
 type REPL struct {
-	session    *chat.Session
-	provider   api.Provider
-	config     *config.Config
-	rl         *readline.Instance
-	formatter  *ui.Formatter
-	status     *ui.StatusDisplay
-	mcpManager *mcp.Manager
+	session     *chat.Session
+	provider    api.Provider
+	config      *config.Config
+	rl          *readline.Instance
+	formatter   *ui.Formatter
+	status      *ui.StatusDisplay
+	mcpManager  *mcp.Manager
+	inputReader *inputReader
 }
 
 func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (*REPL, error) {
@@ -95,6 +99,9 @@ func (r *REPL) Start(ctx context.Context) error {
 }
 
 func (r *REPL) Stop() {
+	if r.inputReader != nil {
+		r.inputReader.stop()
+	}
 	r.rl.Close()
 }
 
@@ -171,20 +178,36 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		req = r.session.BuildAPIRequestWithoutClarify()
 	}
 
-	// Add MCP tools if available
+	// Add tools
+	var tools []request.Tool
 	if r.mcpManager != nil {
-		req.Tools = r.mcpManager.GetDeepSeekTools()
+		tools = r.mcpManager.GetDeepSeekTools()
 	}
+	// Add ask_user tool if enabled
+	if r.session.IsAskUserEnabled() {
+		tools = append(tools, mcp.GetAskUserTool())
+	}
+	req.Tools = tools
+
+	// Show spinner while waiting for response
+	r.status.Show("Generating response...")
 
 	start := time.Now()
 	response, err := r.provider.SendMessage(ctx, req)
 	if err != nil {
+		r.status.Hide()
 		return fmt.Errorf("API request failed: %w", err)
 	}
 
 	// Handle tool calls loop
 	for len(response.ToolCalls) > 0 {
 		r.status.Hide()
+
+		// Check if any tool call is ask_user (handle it specially)
+		askUserCall := findAskUserCall(response.ToolCalls)
+		if askUserCall != nil && r.session.IsAskUserEnabled() {
+			return r.handleAskUserToolCall(ctx, response, askUserCall, start)
+		}
 
 		// First, add the assistant message with tool calls to history
 		// This is required by DeepSeek API - tool results must follow a message with tool_calls
@@ -216,9 +239,14 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		// Send follow-up request with tool results
 		r.status.Show("Processing tool results...")
 		req = r.session.BuildAPIRequestWithToolResults()
+		var toolsForResults []request.Tool
 		if r.mcpManager != nil {
-			req.Tools = r.mcpManager.GetDeepSeekTools()
+			toolsForResults = r.mcpManager.GetDeepSeekTools()
 		}
+		if r.session.IsAskUserEnabled() {
+			toolsForResults = append(toolsForResults, mcp.GetAskUserTool())
+		}
+		req.Tools = toolsForResults
 
 		response, err = r.provider.SendMessage(ctx, req)
 		if err != nil {
@@ -229,6 +257,11 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 	duration := time.Since(start)
 	r.status.Hide()
 
+	// Check for ask_user request in response
+	if r.session.IsAskUserEnabled() && chat.HasAskUserRequest(response.Content) {
+		return r.handleAskUserResponse(ctx, response, duration)
+	}
+
 	r.session.AddAssistantMessage(response.Content)
 	r.displayResponse(response, duration)
 
@@ -238,21 +271,161 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 	return nil
 }
 
+// findAskUserCall finds an ask_user tool call in the list
+func findAskUserCall(toolCalls []api.ToolCall) *api.ToolCall {
+	for i := range toolCalls {
+		if toolCalls[i].Name == "ask_user" {
+			return &toolCalls[i]
+		}
+	}
+	return nil
+}
+
+// handleAskUserToolCall handles the ask_user tool call from AI
+func (r *REPL) handleAskUserToolCall(ctx context.Context, response *api.MessageResponse, tc *api.ToolCall, startTime time.Time) error {
+	duration := time.Since(startTime)
+
+	// Parse the ask_user arguments
+	var askReq chat.AskUserRequest
+	if err := json.Unmarshal([]byte(tc.Arguments), &askReq); err != nil {
+		r.displayError(fmt.Errorf("failed to parse ask_user: %v", err))
+		return nil
+	}
+
+	// Display any text content from the response
+	if response.Content != "" {
+		fmt.Println()
+		fmt.Println(r.formatter.FormatAssistantMessage(response.Content))
+	}
+
+	// Display token usage for the request
+	if r.config.UI.ShowTokenCount {
+		fmt.Println(r.formatter.FormatTokenUsage(response.Usage, ui.TokenUsageOptions{
+			Duration: duration,
+			Model:    r.config.Model.Name,
+		}))
+	}
+
+	// Collect answers for all questions
+	var allAnswers [][]string
+	for _, q := range askReq.Questions {
+		// Convert options to string slice
+		options := make([]string, len(q.Options))
+		for i, opt := range q.Options {
+			if opt.Description != "" {
+				options[i] = opt.Label + " - " + opt.Description
+			} else {
+				options[i] = opt.Label
+			}
+		}
+
+		// Ask the question using interactive UI
+		answers, err := r.AskUserQuestion(q.Question, options, q.MultiSelect)
+		if err != nil {
+			return fmt.Errorf("failed to get user answer: %w", err)
+		}
+		allAnswers = append(allAnswers, answers)
+	}
+
+	// Format answers
+	answersText := chat.FormatAskUserAnswers(askReq.Questions, allAnswers)
+
+	// Add the conversation flow: assistant asked, user answered
+	r.session.AddAssistantMessageWithToolCalls(response.Content, response.ToolCalls)
+	r.session.AddToolResult(tc.ID, tc.Name, answersText)
+
+	// Update token tracking
+	r.session.UpdateTokensFromResponse(response.Usage)
+
+	// Continue conversation - AI will process the user's answers
+	r.status.Show("Processing your selection...")
+	return r.sendMessageAndDisplay(ctx, false)
+}
+
+// handleAskUserResponse processes an ask_user request from the AI (tag-based fallback)
+func (r *REPL) handleAskUserResponse(ctx context.Context, response *api.MessageResponse, duration time.Duration) error {
+	// Parse the ask_user request
+	askReq, textBefore, err := chat.ParseAskUserRequest(response.Content)
+	if err != nil {
+		// If parsing fails, treat as normal response
+		r.session.AddAssistantMessage(response.Content)
+		r.displayResponse(response, duration)
+		r.session.UpdateTokensFromResponse(response.Usage)
+		return nil
+	}
+
+	if askReq == nil {
+		// No valid ask_user request found
+		r.session.AddAssistantMessage(response.Content)
+		r.displayResponse(response, duration)
+		r.session.UpdateTokensFromResponse(response.Usage)
+		return nil
+	}
+
+	// Display any text before the ask_user block
+	if textBefore != "" {
+		fmt.Println()
+		fmt.Println(r.formatter.FormatAssistantMessage(textBefore))
+	}
+
+	// Collect answers for all questions
+	var allAnswers [][]string
+	for _, q := range askReq.Questions {
+		// Convert to simple string slice for options
+		options := make([]string, len(q.Options))
+		for i, opt := range q.Options {
+			if opt.Description != "" {
+				options[i] = opt.Label + " - " + opt.Description
+			} else {
+				options[i] = opt.Label
+			}
+		}
+
+		// Ask the question using the interactive UI
+		answers, err := r.AskUserQuestion(q.Question, options, q.MultiSelect)
+		if err != nil {
+			return fmt.Errorf("failed to get user answer: %w", err)
+		}
+		allAnswers = append(allAnswers, answers)
+	}
+
+	// Format answers and add to conversation
+	answersText := chat.FormatAskUserAnswers(askReq.Questions, allAnswers)
+	r.session.AddAssistantMessage(response.Content) // Keep the original response with ask_user
+	r.session.AddUserMessage(answersText)
+
+	// Update token tracking
+	r.session.UpdateTokensFromResponse(response.Usage)
+
+	// Continue conversation with the answers
+	r.status.Show("Processing your answers...")
+	return r.sendMessageAndDisplay(ctx, false)
+}
+
 func (r *REPL) displayToolCall(name, args string) {
-	fmt.Printf("\n%s %s\n", r.formatter.FormatToolLabel("Tool:"), name)
+	toolStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("215")).
+		Bold(true)
+	argsStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245"))
+
+	fmt.Printf("\n%s %s\n", toolStyle.Render("Tool:"), name)
 	if args != "" && args != "{}" {
-		fmt.Printf("  Args: %s\n", args)
+		fmt.Printf("  %s %s\n", argsStyle.Render("Args:"), args)
 	}
 }
 
 func (r *REPL) displayToolResult(name, result string) {
+	resultLabelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("114"))
+
 	// Truncate long results for display
 	display := result
 	maxDisplay := 2000 // Show more of tool results
 	if len(display) > maxDisplay {
 		display = display[:maxDisplay] + fmt.Sprintf("\n... (truncated, %d more chars)", len(result)-maxDisplay)
 	}
-	fmt.Printf("  Result: %s\n", display)
+	fmt.Printf("  %s %s\n", resultLabelStyle.Render("Result:"), display)
 }
 
 // performSummarization compresses the conversation history using AI summarization.
@@ -351,6 +524,9 @@ func (r *REPL) handleCommand(ctx context.Context, command, args string) error {
 
 	case "/mcp":
 		return r.handleMCPCommand(args)
+
+	case "/askuser", "/ask":
+		return r.handleAskUserCommand(args)
 
 	default:
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", command)
@@ -546,6 +722,33 @@ func (r *REPL) handleMCPCommand(args string) error {
 
 	default:
 		return fmt.Errorf("unknown mcp command: %s (use: status, tools)", subcommand)
+	}
+}
+
+func (r *REPL) handleAskUserCommand(args string) error {
+	subcommand := strings.ToLower(strings.TrimSpace(args))
+
+	switch subcommand {
+	case "", "show", "status":
+		if r.session.IsAskUserEnabled() {
+			r.displayInfo("Interactive questions: ENABLED\nAI can present menus with options for you to choose from.")
+		} else {
+			r.displayInfo("Interactive questions: DISABLED\nAI will not present interactive menus.")
+		}
+		return nil
+
+	case "on", "enable":
+		r.session.SetAskUserEnabled(true)
+		r.displaySystem("Interactive questions ENABLED. AI can now present menus with options.")
+		return nil
+
+	case "off", "disable":
+		r.session.SetAskUserEnabled(false)
+		r.displaySystem("Interactive questions DISABLED.")
+		return nil
+
+	default:
+		return fmt.Errorf("unknown askuser command: %s (use: on, off, show)", subcommand)
 	}
 }
 
