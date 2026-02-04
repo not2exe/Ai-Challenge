@@ -21,6 +21,8 @@ A Go-based command-line interface for chatting with DeepSeek AI models. Features
 - **Colored Output**: Beautiful terminal formatting with customizable colors
 - **Token Usage Tracking**: Monitor input/output token consumption
 - **Special Commands**: Built-in commands for session management
+- **🆕 Code Indexing & Semantic Search**: Index codebases and search semantically using local Ollama embeddings
+- **MCP Integration**: Extensible tool support via Model Context Protocol (reminders, code search, iOS automation, Telegram)
 
 ## Requirements
 
@@ -224,6 +226,68 @@ You: /quit
 
 Goodbye!
 ```
+
+## Code Indexing & Semantic Search 🆕
+
+Index your codebase and search it semantically using natural language queries. Powered by local Ollama embeddings.
+
+### Features
+
+- **Semantic Search**: Find code using natural language ("authentication with JWT tokens")
+- **Local Embeddings**: Uses Ollama for privacy and speed
+- **Smart Chunking**: Intelligently splits code into searchable chunks
+- **Multi-language**: Supports Go, JS, TS, Python, Java, Rust, and more
+- **Fast**: Search through thousands of code chunks in milliseconds
+
+### Quick Start
+
+1. **Install Ollama and pull embedding model**:
+   ```bash
+   # Install Ollama from https://ollama.ai
+   ollama pull nomic-embed-text
+   ollama serve
+   ```
+
+2. **Build code index server**:
+   ```bash
+   go build -o mcp-codeindex ./cmd/mcp-codeindex
+   ```
+
+3. **Add to config** (`~/.cli-chat/config.yaml`):
+   ```yaml
+   mcp:
+     enabled: true
+     servers:
+       - name: codeindex
+         command: /path/to/mcp-codeindex
+         args: []
+         env:
+           - OLLAMA_URL=http://localhost:11434
+           - OLLAMA_MODEL=nomic-embed-text
+   ```
+
+4. **Use in chat**:
+   ```
+   > Index the current project
+   AI: Indexing /path/to/project...
+       Indexed 150 files, 1,243 chunks
+
+   > Find code that handles API retries
+   AI: [Shows relevant code chunks with similarity scores]
+   ```
+
+### Documentation
+
+- **Quick Start Guide**: [docs/CODE_INDEX_QUICKSTART.md](docs/CODE_INDEX_QUICKSTART.md)
+- **Full Documentation**: [docs/CODE_INDEX.md](docs/CODE_INDEX.md)
+
+### Available Tools
+
+- `index_directory` - Index a codebase recursively
+- `search_code` - Search indexed code semantically
+- `index_stats` - View index statistics
+- `check_health` - Verify Ollama connectivity
+- `reload_index` - Reload index from disk
 
 ## Project Structure
 

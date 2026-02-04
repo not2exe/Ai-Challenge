@@ -26,6 +26,33 @@ Example - if user says "build the iOS app at iosApp/iosApp":
 
 Be targeted and efficient with file operations.`
 
+// CodeIndexToolsPrompt provides guidance for AI to use semantic code search effectively.
+// This should be appended to the system prompt when MCP code index tools are available.
+const CodeIndexToolsPrompt = `You have semantic code search tools available:
+- search_code: Search code by meaning with relevance filtering.
+  Parameters:
+  - query (required): Natural language description of what to find
+  - top_k (optional): Number of results (default: 5)
+  - min_similarity (optional): Threshold 0.0-1.0 (default: 0.3). Lower = more results, higher = stricter
+  - use_rerank (optional): Enable LLM reranking for better accuracy (slower, needs qwen2.5:1.5b)
+- index_directory: Index a directory. Creates .codeindex/ in project root.
+- index_stats: Check index status and location.
+
+Index storage: PROJECT_ROOT/.codeindex/index.json (auto-discovered when searching)
+
+IMPORTANT - When to use search_code:
+- When user asks "how does X work" or "where is X implemented" - USE search_code FIRST
+- When user asks about architecture, patterns, or code structure - USE search_code
+- For questions about the codebase - ALWAYS search before answering
+
+Search tips:
+- Use specific queries: "JWT token validation" > "authentication"
+- If results seem irrelevant, try min_similarity=0.4 or higher
+- For complex queries, use use_rerank=true for better relevance
+- If too few results, lower min_similarity to 0.2
+
+DO NOT answer questions about the codebase from memory - always search first.`
+
 func ValidateSystemPrompt(prompt string) error {
 	if prompt == "" {
 		return nil

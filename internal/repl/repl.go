@@ -54,9 +54,26 @@ func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (
 func (r *REPL) SetMCPManager(m *mcp.Manager) {
 	r.mcpManager = m
 
-	// If filesystem tools are available, enhance the system prompt with guidance
-	if m != nil && m.HasFilesystemTools() {
-		r.session.SetToolsPrompt(chat.FileToolsPrompt)
+	if m == nil {
+		return
+	}
+
+	// Build tools prompt based on available tools
+	var toolsPrompt string
+
+	if m.HasFilesystemTools() {
+		toolsPrompt = chat.FileToolsPrompt
+	}
+
+	if m.HasCodeIndexTools() {
+		if toolsPrompt != "" {
+			toolsPrompt += "\n\n"
+		}
+		toolsPrompt += chat.CodeIndexToolsPrompt
+	}
+
+	if toolsPrompt != "" {
+		r.session.SetToolsPrompt(toolsPrompt)
 	}
 }
 
@@ -472,6 +489,9 @@ func (r *REPL) handleCommand(ctx context.Context, command, args string) error {
 
 	case "/clear", "/c":
 		r.session.Clear()
+		if err := r.DeleteHistoryFile(); err != nil {
+			r.displayError(fmt.Errorf("failed to delete history file: %w", err))
+		}
 		r.displaySystem("Conversation history cleared.")
 		return nil
 
@@ -762,4 +782,23 @@ func (r *REPL) SaveHistory() error {
 	}
 
 	return r.session.Save(r.config.Session.HistoryFile)
+}
+
+// DeleteHistoryFile removes the history file from disk.
+func (r *REPL) DeleteHistoryFile() error {
+	if !r.config.Session.SaveHistory {
+		return nil
+	}
+
+	historyFile := r.config.Session.HistoryFile
+	if historyFile == "" {
+		return nil
+	}
+
+	// Check if file exists before trying to delete
+	if _, err := os.Stat(historyFile); os.IsNotExist(err) {
+		return nil
+	}
+
+	return os.Remove(historyFile)
 }

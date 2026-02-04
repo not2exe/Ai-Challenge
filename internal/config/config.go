@@ -49,15 +49,15 @@ type TelegramConfig struct {
 type MCPConfig struct {
 	Enabled    bool              `koanf:"enabled"`
 	ConfigFile string            `koanf:"config_file"` // Path to mcp.json (default: ~/.cli-chat/mcp.json)
-	Servers    []MCPServerConfig `koanf:"servers"`     // Inline servers (legacy YAML format)
+	Servers    []MCPServerConfig // Loaded from mcp.json only
 }
 
 type MCPServerConfig struct {
-	Name    string            `koanf:"name" json:"-"` // Name comes from JSON key
-	Command string            `koanf:"command" json:"command"`
-	Args    []string          `koanf:"args" json:"args"`
-	Env     []string          `koanf:"env" json:"-"`           // Legacy YAML format: ["KEY=value"]
-	EnvMap  map[string]string `koanf:"-" json:"env,omitempty"` // JSON format: {"KEY": "value"}
+	Name    string            `json:"-"` // Name comes from JSON key
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     []string          `json:"-"`           // Internal format: ["KEY=value"]
+	EnvMap  map[string]string `json:"env,omitempty"` // JSON format: {"KEY": "value"}
 }
 
 // MCPJSONConfig represents the Claude Desktop-style JSON config format.
@@ -267,7 +267,6 @@ func expandPath(path string) string {
 }
 
 // LoadMCPServers loads MCP server configuration from the JSON config file.
-// It merges with any servers defined in the YAML config.
 func (c *Config) LoadMCPServers() error {
 	// Determine config file path
 	configFile := c.MCP.ConfigFile
@@ -280,7 +279,6 @@ func (c *Config) LoadMCPServers() error {
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No JSON config file, just use YAML servers (if any)
 			return nil
 		}
 		return fmt.Errorf("failed to read MCP config file: %w", err)
@@ -296,8 +294,8 @@ func (c *Config) LoadMCPServers() error {
 	for name, server := range jsonConfig.MCPServers {
 		server.Name = name
 
-		// Convert EnvMap to Env slice for backwards compatibility
-		if server.EnvMap != nil && len(server.Env) == 0 {
+		// Convert EnvMap to Env slice
+		if server.EnvMap != nil {
 			server.Env = make([]string, 0, len(server.EnvMap))
 			for k, v := range server.EnvMap {
 				server.Env = append(server.Env, k+"="+v)

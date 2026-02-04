@@ -47,13 +47,6 @@ func DefaultConfig() map[string]interface{} {
 		"mcp": map[string]interface{}{
 			"enabled":     true,
 			"config_file": "~/.cli-chat/mcp.json",
-			"servers": map[string]interface{}{
-				"filesystem": map[string]interface{}{
-					"command": "npx",
-					"args":    []string{"-y", "@modelcontextprotocol/server-filesystem", "."},
-					"env":     map[string]string{},
-				},
-			},
 		},
 		"scheduler": map[string]interface{}{
 			"enabled":  false,
