@@ -10,6 +10,8 @@ A Model Context Protocol (MCP) server for Telegram Bot API integration.
 ✅ **Message Management** - Edit and delete messages
 ✅ **Chat Info** - Get chat and bot information
 ✅ **Local File Upload** - Automatically uploads local images
+✅ **Receive Messages** - Long polling to get incoming messages
+✅ **Send & Wait for Reply** - Send message and wait for user response (up to 10 min)
 
 ## Quick Start
 
@@ -137,6 +139,74 @@ Get bot information:
 {}
 ```
 
+### get_updates
+
+Get new incoming messages using long polling. Telegram holds the connection open until a message arrives or timeout expires.
+
+```javascript
+{
+  "timeout": 30,  // Optional: 1-50 seconds (default: 30)
+  "limit": 10     // Optional: 1-100 messages (default: 10)
+}
+```
+
+Response:
+```json
+{
+  "count": 1,
+  "messages": [
+    {
+      "message_id": 123,
+      "date": 1704067200,
+      "text": "Hello bot!",
+      "from": {
+        "id": 123456789,
+        "first_name": "John",
+        "username": "johndoe",
+        "is_bot": false
+      }
+    }
+  ]
+}
+```
+
+### send_and_wait_reply
+
+Send a message and wait for the user's reply. Uses long polling to wait up to 10 minutes.
+
+```javascript
+{
+  "text": "Do you want to proceed?",
+  "parse_mode": "HTML",      // Optional (default: HTML)
+  "wait_timeout": 300        // Optional: 1-600 seconds (default: 300)
+}
+```
+
+Response when reply received:
+```json
+{
+  "sent_message_id": 456,
+  "reply": {
+    "message_id": 457,
+    "text": "Yes, proceed!",
+    "date": 1704067500,
+    "from": {"id": 123, "first_name": "John", "username": "johndoe"}
+  },
+  "status": "received",
+  "waited_seconds": 15.5
+}
+```
+
+Response on timeout:
+```json
+{
+  "sent_message_id": 456,
+  "reply": null,
+  "status": "timeout",
+  "waited_seconds": 300
+}
+```
+
 ## Usage Examples
 
 ### iOS Screenshot to Telegram
@@ -168,6 +238,30 @@ END
 ```
 
 Both screenshots will be automatically uploaded and sent.
+
+### Interactive Confirmation
+
+Ask user for confirmation and wait for response:
+
+```bash
+Type here: Send a message to Telegram asking if I want to deploy,
+then wait for my reply and tell me what I said.
+```
+
+The AI will:
+1. Send message: "Do you want to deploy?"
+2. Wait for your reply (up to 5 minutes)
+3. Parse your response and report back
+
+### Poll for New Messages
+
+Check for any incoming messages:
+
+```bash
+Type here: Check if I have any new Telegram messages
+```
+
+The AI will call `get_updates` with long polling and return any messages from your chat.
 
 ### Send Web Image
 
@@ -309,6 +403,13 @@ Wrong chat ID. Check with [@userinfobot](https://t.me/userinfobot).
 Telegram Bot API: https://core.telegram.org/bots/api
 
 ## Changelog
+
+### v1.2.0 - Bidirectional Communication
+- ✅ Added `get_updates` - receive incoming messages with long polling
+- ✅ Added `send_and_wait_reply` - send message and wait for user response
+- ✅ Support for waiting up to 10 minutes for reply
+- ✅ Automatic offset tracking to avoid duplicate messages
+- ✅ Filter messages by configured chat ID
 
 ### v1.1.0 - Local File Upload Support
 - ✅ Added automatic local file upload for `send_photo`

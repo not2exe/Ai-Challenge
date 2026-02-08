@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -19,10 +21,12 @@ import (
 
 // Server implements an MCP server for Telegram Bot API operations
 type Server struct {
-	mcpServer *server.MCPServer
-	client    *http.Client
-	botToken  string
-	chatID    string
+	mcpServer    *server.MCPServer
+	client       *http.Client
+	botToken     string
+	chatID       string
+	lastUpdateID int64
+	updateMu     sync.Mutex
 }
 
 // NewServer creates a new Telegram MCP server
@@ -128,6 +132,27 @@ func (s *Server) registerTools() {
 			mcp.WithDescription("Get information about the Telegram bot"),
 		),
 		s.handleGetMe,
+	)
+
+	// Get updates (incoming messages)
+	s.mcpServer.AddTool(
+		mcp.NewTool("get_updates",
+			mcp.WithDescription("Get new incoming messages from the Telegram chat. Uses long polling to wait for messages."),
+			mcp.WithNumber("timeout", mcp.Description("Long polling timeout in seconds (1-50). Default is 30. Telegram will hold the connection until a message arrives or timeout expires.")),
+			mcp.WithNumber("limit", mcp.Description("Maximum number of updates to return (1-100). Default is 10.")),
+		),
+		s.handleGetUpdates,
+	)
+
+	// Wait for reply after sending a message
+	s.mcpServer.AddTool(
+		mcp.NewTool("send_and_wait_reply",
+			mcp.WithDescription("Send a message and wait for a reply from the user. Uses long polling to wait up to the specified timeout."),
+			mcp.WithString("text", mcp.Required(), mcp.Description("The message text to send")),
+			mcp.WithString("parse_mode", mcp.Description("Optional. Parse mode: 'HTML', 'Markdown', or 'MarkdownV2'. Default is 'HTML'")),
+			mcp.WithNumber("wait_timeout", mcp.Description("How long to wait for a reply in seconds (1-600). Default is 300 (5 minutes). Maximum is 600 (10 minutes).")),
+		),
+		s.handleSendAndWaitReply,
 	)
 }
 
@@ -454,4 +479,340 @@ func (s *Server) uploadPhotoFile(filePath, caption, parseMode string) ([]byte, e
 	}
 
 	return responseBody, nil
+}
+
+// TelegramUpdate represents an update from Telegram
+type TelegramUpdate struct {
+	UpdateID int64            `json:"update_id"`
+	Message  *TelegramMessage `json:"message,omitempty"`
+}
+
+// TelegramMessage represents a message in Telegram
+type TelegramMessage struct {
+	MessageID int64            `json:"message_id"`
+	From      *TelegramUser    `json:"from,omitempty"`
+	Chat      *TelegramChat    `json:"chat"`
+	Date      int64            `json:"date"`
+	Text      string           `json:"text,omitempty"`
+	Photo     []interface{}    `json:"photo,omitempty"`
+	Document  interface{}      `json:"document,omitempty"`
+	ReplyTo   *TelegramMessage `json:"reply_to_message,omitempty"`
+}
+
+// TelegramUser represents a Telegram user
+type TelegramUser struct {
+	ID        int64  `json:"id"`
+	IsBot     bool   `json:"is_bot"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name,omitempty"`
+	Username  string `json:"username,omitempty"`
+}
+
+// TelegramChat represents a Telegram chat
+type TelegramChat struct {
+	ID        int64  `json:"id"`
+	Type      string `json:"type"`
+	Title     string `json:"title,omitempty"`
+	Username  string `json:"username,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
+}
+
+// GetUpdatesResponse represents the response from getUpdates
+type GetUpdatesResponse struct {
+	OK     bool             `json:"ok"`
+	Result []TelegramUpdate `json:"result"`
+}
+
+// handleGetUpdates gets new messages using long polling
+func (s *Server) handleGetUpdates(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	timeout := int(req.GetFloat("timeout", 30))
+	if timeout < 1 {
+		timeout = 1
+	}
+	if timeout > 50 {
+		timeout = 50 // Telegram max is 50 seconds
+	}
+
+	limit := int(req.GetFloat("limit", 10))
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	s.updateMu.Lock()
+	offset := s.lastUpdateID
+	s.updateMu.Unlock()
+
+	payload := map[string]interface{}{
+		"timeout":         timeout,
+		"limit":           limit,
+		"allowed_updates": []string{"message"},
+	}
+	if offset > 0 {
+		payload["offset"] = offset + 1
+	}
+
+	// Create a client with extended timeout for long polling
+	client := &http.Client{
+		Timeout: time.Duration(timeout+10) * time.Second,
+	}
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates", s.botToken)
+	jsonData, _ := json.Marshal(payload)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to create request: %v", err)), nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Request failed: %v", err)), nil
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to read response: %v", err)), nil
+	}
+
+	var updatesResp GetUpdatesResponse
+	if err := json.Unmarshal(body, &updatesResp); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse response: %v", err)), nil
+	}
+
+	if !updatesResp.OK {
+		return mcp.NewToolResultError(fmt.Sprintf("Telegram API error: %s", string(body))), nil
+	}
+
+	// Update the offset
+	if len(updatesResp.Result) > 0 {
+		s.updateMu.Lock()
+		lastUpdate := updatesResp.Result[len(updatesResp.Result)-1]
+		if lastUpdate.UpdateID > s.lastUpdateID {
+			s.lastUpdateID = lastUpdate.UpdateID
+		}
+		s.updateMu.Unlock()
+	}
+
+	// Filter messages from the configured chat
+	var messages []map[string]interface{}
+	for _, update := range updatesResp.Result {
+		if update.Message != nil && fmt.Sprintf("%d", update.Message.Chat.ID) == s.chatID {
+			msg := map[string]interface{}{
+				"message_id": update.Message.MessageID,
+				"date":       update.Message.Date,
+				"text":       update.Message.Text,
+			}
+			if update.Message.From != nil {
+				msg["from"] = map[string]interface{}{
+					"id":         update.Message.From.ID,
+					"first_name": update.Message.From.FirstName,
+					"last_name":  update.Message.From.LastName,
+					"username":   update.Message.From.Username,
+					"is_bot":     update.Message.From.IsBot,
+				}
+			}
+			if update.Message.ReplyTo != nil {
+				msg["reply_to_message_id"] = update.Message.ReplyTo.MessageID
+			}
+			messages = append(messages, msg)
+		}
+	}
+
+	result, _ := json.MarshalIndent(map[string]interface{}{
+		"count":    len(messages),
+		"messages": messages,
+	}, "", "  ")
+
+	return mcp.NewToolResultText(string(result)), nil
+}
+
+// handleSendAndWaitReply sends a message and waits for a reply
+func (s *Server) handleSendAndWaitReply(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	text := req.GetString("text", "")
+	if text == "" {
+		return mcp.NewToolResultError("text parameter required"), nil
+	}
+
+	parseMode := req.GetString("parse_mode", "HTML")
+	if parseMode == "" {
+		parseMode = "HTML"
+	}
+
+	waitTimeout := int(req.GetFloat("wait_timeout", 300))
+	if waitTimeout < 1 {
+		waitTimeout = 1
+	}
+	if waitTimeout > 600 {
+		waitTimeout = 600 // Max 10 minutes
+	}
+
+	// First, send the message
+	sendPayload := map[string]interface{}{
+		"chat_id":    s.chatID,
+		"text":       text,
+		"parse_mode": parseMode,
+	}
+
+	sendResult, err := s.callTelegramAPI("sendMessage", sendPayload)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to send message: %v", err)), nil
+	}
+
+	var sendResp struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(sendResult, &sendResp); err != nil || !sendResp.OK {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse send response: %s", string(sendResult))), nil
+	}
+
+	sentMessageID := sendResp.Result.MessageID
+
+	// Clear any pending updates first to ensure we only get new messages
+	s.updateMu.Lock()
+	// Fetch current updates to get the latest offset
+	clearPayload := map[string]interface{}{
+		"timeout": 0,
+		"limit":   100,
+	}
+	s.updateMu.Unlock()
+
+	clearResult, _ := s.callTelegramAPI("getUpdates", clearPayload)
+	var clearResp GetUpdatesResponse
+	if err := json.Unmarshal(clearResult, &clearResp); err == nil && clearResp.OK && len(clearResp.Result) > 0 {
+		s.updateMu.Lock()
+		s.lastUpdateID = clearResp.Result[len(clearResp.Result)-1].UpdateID
+		s.updateMu.Unlock()
+	}
+
+	// Now wait for a reply using long polling
+	// Telegram max timeout is 50 seconds, so we loop
+	startTime := time.Now()
+	deadline := startTime.Add(time.Duration(waitTimeout) * time.Second)
+
+	for time.Now().Before(deadline) {
+		// Calculate remaining time
+		remaining := time.Until(deadline)
+		pollTimeout := 50 // Max Telegram allows
+		if remaining < time.Duration(pollTimeout)*time.Second {
+			pollTimeout = int(remaining.Seconds())
+			if pollTimeout < 1 {
+				pollTimeout = 1
+			}
+		}
+
+		s.updateMu.Lock()
+		offset := s.lastUpdateID
+		s.updateMu.Unlock()
+
+		payload := map[string]interface{}{
+			"timeout":         pollTimeout,
+			"limit":           10,
+			"allowed_updates": []string{"message"},
+		}
+		if offset > 0 {
+			payload["offset"] = offset + 1
+		}
+
+		// Create client with extended timeout
+		client := &http.Client{
+			Timeout: time.Duration(pollTimeout+10) * time.Second,
+		}
+
+		url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates", s.botToken)
+		jsonData, _ := json.Marshal(payload)
+
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+		if err != nil {
+			continue
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			// Check if context was cancelled
+			if ctx.Err() != nil {
+				return mcp.NewToolResultText(fmt.Sprintf(`{"sent_message_id": %d, "reply": null, "status": "cancelled", "waited_seconds": %.0f}`, sentMessageID, time.Since(startTime).Seconds())), nil
+			}
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+
+		var updatesResp GetUpdatesResponse
+		if err := json.Unmarshal(body, &updatesResp); err != nil || !updatesResp.OK {
+			continue
+		}
+
+		// Update offset
+		if len(updatesResp.Result) > 0 {
+			s.updateMu.Lock()
+			lastUpdate := updatesResp.Result[len(updatesResp.Result)-1]
+			if lastUpdate.UpdateID > s.lastUpdateID {
+				s.lastUpdateID = lastUpdate.UpdateID
+			}
+			s.updateMu.Unlock()
+		}
+
+		// Check for reply from the configured chat
+		for _, update := range updatesResp.Result {
+			if update.Message == nil {
+				continue
+			}
+			// Check if it's from our chat
+			if fmt.Sprintf("%d", update.Message.Chat.ID) != s.chatID {
+				continue
+			}
+			// Skip bot messages
+			if update.Message.From != nil && update.Message.From.IsBot {
+				continue
+			}
+
+			// Found a human reply!
+			reply := map[string]interface{}{
+				"message_id": update.Message.MessageID,
+				"text":       update.Message.Text,
+				"date":       update.Message.Date,
+			}
+			if update.Message.From != nil {
+				reply["from"] = map[string]interface{}{
+					"id":         update.Message.From.ID,
+					"first_name": update.Message.From.FirstName,
+					"last_name":  update.Message.From.LastName,
+					"username":   update.Message.From.Username,
+				}
+			}
+
+			result, _ := json.MarshalIndent(map[string]interface{}{
+				"sent_message_id": sentMessageID,
+				"reply":           reply,
+				"status":          "received",
+				"waited_seconds":  time.Since(startTime).Seconds(),
+			}, "", "  ")
+
+			return mcp.NewToolResultText(string(result)), nil
+		}
+	}
+
+	// Timeout reached, no reply
+	result, _ := json.MarshalIndent(map[string]interface{}{
+		"sent_message_id": sentMessageID,
+		"reply":           nil,
+		"status":          "timeout",
+		"waited_seconds":  waitTimeout,
+	}, "", "  ")
+
+	return mcp.NewToolResultText(string(result)), nil
 }

@@ -119,9 +119,9 @@ TOOLS:
                      Creates .codeindex/ in the target directory.
                      Parameters: path (required)
 
-    search_code      Search indexed code by semantic similarity.
+    semantic_search  Search indexed code by semantic similarity.
                      Automatically finds .codeindex/ from current directory.
-                     Parameters: query (required), top_k (optional, default: 5)
+                     Parameters: query (required), top_k (optional, default: 3)
 
     index_stats      Get statistics about the current index
                      (number of chunks, files, model used, index path)
@@ -155,10 +155,10 @@ EXAMPLE USAGE:
        Use tool: index_directory with path="."
 
     2. Search for authentication code:
-       Use tool: search_code with query="user authentication and login"
+       Use tool: semantic_search with query="user authentication and login"
 
     3. Find error handling:
-       Use tool: search_code with query="error handling and retries"
+       Use tool: semantic_search with query="error handling and retries"
 
 GITIGNORE:
     Add .codeindex/ to your .gitignore to avoid committing the index:

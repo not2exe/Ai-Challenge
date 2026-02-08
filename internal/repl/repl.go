@@ -216,6 +216,13 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		return fmt.Errorf("API request failed: %w", err)
 	}
 
+	// Track cumulative usage across all API calls in this interaction
+	cumulativeUsage := api.Usage{
+		InputTokens:  response.Usage.InputTokens,
+		OutputTokens: response.Usage.OutputTokens,
+	}
+	apiCallCount := 1
+
 	// Handle tool calls loop
 	for len(response.ToolCalls) > 0 {
 		r.status.Hide()
@@ -223,7 +230,7 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		// Check if any tool call is ask_user (handle it specially)
 		askUserCall := findAskUserCall(response.ToolCalls)
 		if askUserCall != nil && r.session.IsAskUserEnabled() {
-			return r.handleAskUserToolCall(ctx, response, askUserCall, start)
+			return r.handleAskUserToolCallWithUsage(ctx, response, askUserCall, start, cumulativeUsage, apiCallCount)
 		}
 
 		// First, add the assistant message with tool calls to history
@@ -269,6 +276,11 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 		if err != nil {
 			return fmt.Errorf("API request failed: %w", err)
 		}
+
+		// Accumulate usage from this API call
+		cumulativeUsage.InputTokens += response.Usage.InputTokens
+		cumulativeUsage.OutputTokens += response.Usage.OutputTokens
+		apiCallCount++
 	}
 
 	duration := time.Since(start)
@@ -276,14 +288,14 @@ func (r *REPL) sendMessageAndDisplay(ctx context.Context, includeClarify bool) e
 
 	// Check for ask_user request in response
 	if r.session.IsAskUserEnabled() && chat.HasAskUserRequest(response.Content) {
-		return r.handleAskUserResponse(ctx, response, duration)
+		return r.handleAskUserResponseWithUsage(ctx, response, duration, cumulativeUsage, apiCallCount)
 	}
 
 	r.session.AddAssistantMessage(response.Content)
-	r.displayResponse(response, duration)
+	r.displayResponseWithUsage(response, duration, cumulativeUsage, apiCallCount)
 
 	// Update token tracking from response for next iteration
-	r.session.UpdateTokensFromResponse(response.Usage)
+	r.session.UpdateTokensFromResponse(cumulativeUsage)
 
 	return nil
 }
@@ -300,6 +312,11 @@ func findAskUserCall(toolCalls []api.ToolCall) *api.ToolCall {
 
 // handleAskUserToolCall handles the ask_user tool call from AI
 func (r *REPL) handleAskUserToolCall(ctx context.Context, response *api.MessageResponse, tc *api.ToolCall, startTime time.Time) error {
+	return r.handleAskUserToolCallWithUsage(ctx, response, tc, startTime, response.Usage, 1)
+}
+
+// handleAskUserToolCallWithUsage handles the ask_user tool call with cumulative usage tracking
+func (r *REPL) handleAskUserToolCallWithUsage(ctx context.Context, response *api.MessageResponse, tc *api.ToolCall, startTime time.Time, cumulativeUsage api.Usage, apiCallCount int) error {
 	duration := time.Since(startTime)
 
 	// Parse the ask_user arguments
@@ -317,9 +334,10 @@ func (r *REPL) handleAskUserToolCall(ctx context.Context, response *api.MessageR
 
 	// Display token usage for the request
 	if r.config.UI.ShowTokenCount {
-		fmt.Println(r.formatter.FormatTokenUsage(response.Usage, ui.TokenUsageOptions{
-			Duration: duration,
-			Model:    r.config.Model.Name,
+		fmt.Println(r.formatter.FormatTokenUsage(cumulativeUsage, ui.TokenUsageOptions{
+			Duration:     duration,
+			Model:        r.config.Model.Name,
+			APICallCount: apiCallCount,
 		}))
 	}
 
@@ -351,8 +369,8 @@ func (r *REPL) handleAskUserToolCall(ctx context.Context, response *api.MessageR
 	r.session.AddAssistantMessageWithToolCalls(response.Content, response.ToolCalls)
 	r.session.AddToolResult(tc.ID, tc.Name, answersText)
 
-	// Update token tracking
-	r.session.UpdateTokensFromResponse(response.Usage)
+	// Update token tracking with cumulative usage
+	r.session.UpdateTokensFromResponse(cumulativeUsage)
 
 	// Continue conversation - AI will process the user's answers
 	r.status.Show("Processing your selection...")
@@ -361,21 +379,26 @@ func (r *REPL) handleAskUserToolCall(ctx context.Context, response *api.MessageR
 
 // handleAskUserResponse processes an ask_user request from the AI (tag-based fallback)
 func (r *REPL) handleAskUserResponse(ctx context.Context, response *api.MessageResponse, duration time.Duration) error {
+	return r.handleAskUserResponseWithUsage(ctx, response, duration, response.Usage, 1)
+}
+
+// handleAskUserResponseWithUsage processes an ask_user request with cumulative usage tracking
+func (r *REPL) handleAskUserResponseWithUsage(ctx context.Context, response *api.MessageResponse, duration time.Duration, cumulativeUsage api.Usage, apiCallCount int) error {
 	// Parse the ask_user request
 	askReq, textBefore, err := chat.ParseAskUserRequest(response.Content)
 	if err != nil {
 		// If parsing fails, treat as normal response
 		r.session.AddAssistantMessage(response.Content)
-		r.displayResponse(response, duration)
-		r.session.UpdateTokensFromResponse(response.Usage)
+		r.displayResponseWithUsage(response, duration, cumulativeUsage, apiCallCount)
+		r.session.UpdateTokensFromResponse(cumulativeUsage)
 		return nil
 	}
 
 	if askReq == nil {
 		// No valid ask_user request found
 		r.session.AddAssistantMessage(response.Content)
-		r.displayResponse(response, duration)
-		r.session.UpdateTokensFromResponse(response.Usage)
+		r.displayResponseWithUsage(response, duration, cumulativeUsage, apiCallCount)
+		r.session.UpdateTokensFromResponse(cumulativeUsage)
 		return nil
 	}
 
@@ -411,8 +434,8 @@ func (r *REPL) handleAskUserResponse(ctx context.Context, response *api.MessageR
 	r.session.AddAssistantMessage(response.Content) // Keep the original response with ask_user
 	r.session.AddUserMessage(answersText)
 
-	// Update token tracking
-	r.session.UpdateTokensFromResponse(response.Usage)
+	// Update token tracking with cumulative usage
+	r.session.UpdateTokensFromResponse(cumulativeUsage)
 
 	// Continue conversation with the answers
 	r.status.Show("Processing your answers...")
@@ -443,6 +466,7 @@ func (r *REPL) displayToolResult(name, result string) {
 		display = display[:maxDisplay] + fmt.Sprintf("\n... (truncated, %d more chars)", len(result)-maxDisplay)
 	}
 	fmt.Printf("  %s %s\n", resultLabelStyle.Render("Result:"), display)
+	os.Stdout.Sync() // Flush immediately
 }
 
 // performSummarization compresses the conversation history using AI summarization.

@@ -210,9 +210,9 @@ func (m *Manager) HasFilesystemTools() bool {
 	return false
 }
 
-// HasCodeIndexTools checks if code index tools (search_code, index_directory, etc.) are available.
+// HasCodeIndexTools checks if code index tools (semantic_search, index_directory, etc.) are available.
 func (m *Manager) HasCodeIndexTools() bool {
-	codeIndexTools := []string{"search_code", "index_directory", "index_stats"}
+	codeIndexTools := []string{"semantic_search", "index_directory", "index_stats"}
 	for _, toolName := range codeIndexTools {
 		if _, ok := m.tools[toolName]; ok {
 			return true

@@ -51,14 +51,16 @@ func (s *Server) registerTools() {
 		s.handleIndexDirectory,
 	)
 
-	// search_code
+	// semantic_search - semantic code search using embeddings
 	s.mcpServer.AddTool(
-		mcp.NewTool("search_code",
-			mcp.WithDescription("Search indexed code by semantic similarity. Returns most relevant code chunks with filtering."),
-			mcp.WithString("query", mcp.Required(), mcp.Description("Natural language query describing what code to find")),
-			mcp.WithNumber("top_k", mcp.Description("Number of results to return (default: 5)")),
-			mcp.WithNumber("min_similarity", mcp.Description("Minimum similarity threshold 0.0-1.0 (default: 0.3). Results below this are filtered out.")),
-			mcp.WithBoolean("use_rerank", mcp.Description("Use LLM reranking for better relevance (slower but more accurate). Requires qwen2.5:1.5b model.")),
+		mcp.NewTool("semantic_search",
+			mcp.WithDescription("Search indexed code by meaning using embeddings. Use compact=true to save tokens."),
+			mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
+			mcp.WithNumber("top_k", mcp.Description("Results count (default: 3)")),
+			mcp.WithNumber("min_similarity", mcp.Description("Min threshold 0-1 (default: 0.3)")),
+			mcp.WithBoolean("use_rerank", mcp.Description("LLM reranking (slower)")),
+			mcp.WithNumber("max_content_length", mcp.Description("Max snippet length (default: 500)")),
+			mcp.WithBoolean("compact", mcp.Description("Return only file paths, no code")),
 		),
 		s.handleSearchCode,
 	)
@@ -123,9 +125,12 @@ func (s *Server) handleSearchCode(ctx context.Context, req mcp.CallToolRequest) 
 		return mcp.NewToolResultError("query is required"), nil
 	}
 
-	topK := req.GetInt("top_k", 5)
+	topK := req.GetInt("top_k", 3)
 	if topK <= 0 {
-		topK = 5
+		topK = 3
+	}
+	if topK > 10 {
+		topK = 10
 	}
 
 	minSimilarity := req.GetFloat("min_similarity", 0.3)
@@ -137,6 +142,14 @@ func (s *Server) handleSearchCode(ctx context.Context, req mcp.CallToolRequest) 
 	}
 
 	useRerank := req.GetBool("use_rerank", false)
+	maxContentLength := req.GetInt("max_content_length", 500)
+	if maxContentLength <= 0 {
+		maxContentLength = 500
+	}
+	if maxContentLength > 2000 {
+		maxContentLength = 2000
+	}
+	compact := req.GetBool("compact", false)
 
 	// Get more results initially for filtering
 	searchK := topK * 3
@@ -162,6 +175,19 @@ func (s *Server) handleSearchCode(ctx context.Context, req mcp.CallToolRequest) 
 	// Limit to requested top_k after reranking
 	if len(reranked) > topK {
 		reranked = reranked[:topK]
+	}
+
+	// Truncate content
+	for i := range reranked {
+		if len(reranked[i].Chunk.Content) > maxContentLength {
+			reranked[i].Chunk.Content = reranked[i].Chunk.Content[:maxContentLength] + "\n..."
+		}
+	}
+
+	// Compact mode: return only file locations
+	if compact {
+		searchResp := BuildSearchResponse(query, reranked, stats)
+		return mcp.NewToolResultText(FormatCompactResponse(searchResp)), nil
 	}
 
 	formatted := FormatRerankedResults(reranked, stats)

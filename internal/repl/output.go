@@ -2,6 +2,7 @@ package repl
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -11,6 +12,10 @@ import (
 )
 
 func (r *REPL) displayResponse(response *api.MessageResponse, duration time.Duration) {
+	r.displayResponseWithUsage(response, duration, response.Usage, 1)
+}
+
+func (r *REPL) displayResponseWithUsage(response *api.MessageResponse, duration time.Duration, cumulativeUsage api.Usage, apiCallCount int) {
 	r.status.Hide()
 
 	// Apply terminal formatting (markdown/LaTeX cleanup)
@@ -49,13 +54,15 @@ func (r *REPL) displayResponse(response *api.MessageResponse, duration time.Dura
 	}
 
 	if r.config.UI.ShowTokenCount {
-		fmt.Println(r.formatter.FormatTokenUsage(response.Usage, ui.TokenUsageOptions{
-			Duration: duration,
-			Model:    r.config.Model.Name,
+		fmt.Println(r.formatter.FormatTokenUsage(cumulativeUsage, ui.TokenUsageOptions{
+			Duration:     duration,
+			Model:        r.config.Model.Name,
+			APICallCount: apiCallCount,
 		}))
 	}
 
 	fmt.Println()
+	os.Stdout.Sync() // Flush to ensure output displays immediately
 }
 
 func (r *REPL) displayError(err error) {

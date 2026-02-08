@@ -155,22 +155,30 @@ func (f *Formatter) FormatToolLabel(label string) string {
 
 // TokenUsageOptions contains optional parameters for token usage display.
 type TokenUsageOptions struct {
-	Duration time.Duration
-	Model    string
+	Duration     time.Duration
+	Model        string
+	APICallCount int // Number of API calls made (for multi-step tool calls)
 }
 
 func (f *Formatter) FormatTokenUsage(usage api.Usage, opts ...TokenUsageOptions) string {
 	var duration time.Duration
 	var model string
+	var apiCallCount int
 
 	if len(opts) > 0 {
 		duration = opts[0].Duration
 		model = opts[0].Model
+		apiCallCount = opts[0].APICallCount
 	}
 
 	// Build the message parts
 	parts := []string{
 		fmt.Sprintf("tokens: input=%d, output=%d", usage.InputTokens, usage.OutputTokens),
+	}
+
+	// Add API call count if more than 1
+	if apiCallCount > 1 {
+		parts = append(parts, fmt.Sprintf("api_calls: %d", apiCallCount))
 	}
 
 	// Add duration if provided

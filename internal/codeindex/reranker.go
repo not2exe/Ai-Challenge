@@ -119,6 +119,32 @@ type RerankerStats struct {
 	UsedLLMRerank       bool    `json:"used_llm_rerank"`
 }
 
+// SourceCitation represents a citation/reference to a source code location.
+type SourceCitation struct {
+	ID         int     `json:"id"`
+	FilePath   string  `json:"file_path"`
+	FileName   string  `json:"file_name"`
+	StartLine  int     `json:"start_line"`
+	EndLine    int     `json:"end_line"`
+	Similarity float64 `json:"similarity"`
+	Preview    string  `json:"preview,omitempty"`
+}
+
+// SearchResponse is the structured response from semantic_search with separate sources.
+type SearchResponse struct {
+	Query   string           `json:"query"`
+	Results []CodeResult     `json:"results"`
+	Sources []SourceCitation `json:"sources"`
+	Stats   *RerankerStats   `json:"stats"`
+}
+
+// CodeResult represents a single code search result.
+type CodeResult struct {
+	CitationID int     `json:"citation_id"`
+	Content    string  `json:"content"`
+	Relevance  float64 `json:"relevance"`
+}
+
 // llmRerank uses Ollama to rerank results based on relevance to the query.
 func (r *Reranker) llmRerank(ctx context.Context, query string, results []RerankedResult) ([]RerankedResult, error) {
 	if len(results) == 0 {
@@ -231,7 +257,7 @@ func FilterByThreshold(results []SearchResult, minSimilarity float64) []SearchRe
 	return filtered
 }
 
-// FormatRerankedResults formats reranked results with stats.
+// FormatRerankedResults formats reranked results with stats and a separate sources block.
 func FormatRerankedResults(results []RerankedResult, stats *RerankerStats) string {
 	if len(results) == 0 {
 		msg := fmt.Sprintf("No relevant results found (threshold: %.2f).\n", stats.MinSimilarity)
@@ -255,8 +281,9 @@ func FormatRerankedResults(results []RerankedResult, stats *RerankerStats) strin
 	}
 	builder.WriteString(":\n\n")
 
+	// Code results with citation IDs
 	for i, result := range results {
-		builder.WriteString(fmt.Sprintf("Result %d", i+1))
+		builder.WriteString(fmt.Sprintf("[%d] Result", i+1))
 		if stats.UsedLLMRerank {
 			builder.WriteString(fmt.Sprintf(" (similarity: %.3f, llm: %.3f, final: %.3f)",
 				result.Similarity, result.LLMScore, result.FinalScore))
@@ -264,12 +291,90 @@ func FormatRerankedResults(results []RerankedResult, stats *RerankerStats) strin
 			builder.WriteString(fmt.Sprintf(" (similarity: %.3f)", result.Similarity))
 		}
 		builder.WriteString(":\n")
-		builder.WriteString(fmt.Sprintf("File: %s (lines %d-%d)\n",
-			result.Chunk.FilePath, result.Chunk.Start, result.Chunk.End))
 		builder.WriteString("```\n")
 		builder.WriteString(result.Chunk.Content)
 		builder.WriteString("\n```\n\n")
 	}
 
+	// Sources block - separate section with file references
+	builder.WriteString("─────────────────────────────────────\n")
+	builder.WriteString("📚 SOURCES:\n")
+	for i, result := range results {
+		fileName := result.Chunk.FilePath
+		if idx := strings.LastIndex(fileName, "/"); idx != -1 {
+			fileName = fileName[idx+1:]
+		}
+		builder.WriteString(fmt.Sprintf("[%d] %s:%d-%d\n",
+			i+1, result.Chunk.FilePath, result.Chunk.Start, result.Chunk.End))
+		builder.WriteString(fmt.Sprintf("    └─ %s (%.0f%% relevant)\n",
+			fileName, result.FinalScore*100))
+	}
+	builder.WriteString("─────────────────────────────────────\n")
+
+	return builder.String()
+}
+
+// BuildSearchResponse creates a structured SearchResponse from reranked results.
+func BuildSearchResponse(query string, results []RerankedResult, stats *RerankerStats) *SearchResponse {
+	resp := &SearchResponse{
+		Query:   query,
+		Results: make([]CodeResult, 0, len(results)),
+		Sources: make([]SourceCitation, 0, len(results)),
+		Stats:   stats,
+	}
+
+	for i, r := range results {
+		citationID := i + 1
+
+		fileName := r.Chunk.FilePath
+		if idx := strings.LastIndex(fileName, "/"); idx != -1 {
+			fileName = fileName[idx+1:]
+		}
+
+		preview := r.Chunk.Content
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		preview = strings.ReplaceAll(preview, "\n", " ")
+		preview = strings.Join(strings.Fields(preview), " ")
+
+		source := SourceCitation{
+			ID:         citationID,
+			FilePath:   r.Chunk.FilePath,
+			FileName:   fileName,
+			StartLine:  r.Chunk.Start,
+			EndLine:    r.Chunk.End,
+			Similarity: r.FinalScore,
+			Preview:    preview,
+		}
+		resp.Sources = append(resp.Sources, source)
+
+		result := CodeResult{
+			CitationID: citationID,
+			Content:    r.Chunk.Content,
+			Relevance:  r.FinalScore,
+		}
+		resp.Results = append(resp.Results, result)
+	}
+
+	return resp
+}
+
+// FormatCompactResponse formats SearchResponse as a compact list of file locations only.
+func FormatCompactResponse(resp *SearchResponse) string {
+	if len(resp.Results) == 0 {
+		return fmt.Sprintf("No results found for: %q", resp.Query)
+	}
+
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("Found %d files for: %q\n\n", len(resp.Sources), resp.Query))
+
+	for _, source := range resp.Sources {
+		builder.WriteString(fmt.Sprintf("[%d] %s:%d-%d (%.0f%% relevant)\n",
+			source.ID, source.FilePath, source.StartLine, source.EndLine, source.Similarity*100))
+		builder.WriteString(fmt.Sprintf("    %s\n", source.Preview))
+	}
+
+	builder.WriteString("\nUse semantic_search with compact=false to see full code.")
 	return builder.String()
 }
