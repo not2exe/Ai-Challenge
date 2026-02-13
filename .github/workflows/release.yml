@@ -1,0 +1,48 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          SUFFIX="${{ matrix.goos }}-${{ matrix.goarch }}"
+          go build -o "review-${SUFFIX}" ./cmd/review
+          go build -o "mcp-codeindex-${SUFFIX}" ./cmd/mcp-codeindex
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SUFFIX="${{ matrix.goos }}-${{ matrix.goarch }}"
+          gh release upload ${{ github.ref_name }} \
+            "review-${SUFFIX}" \
+            "mcp-codeindex-${SUFFIX}" \
+            --clobber
