@@ -1,0 +1,70 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Cache Ollama model between runs (~270MB, saves ~2 min)
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-nomic-embed-text-v1
+
+      - name: Setup Ollama
+        run: |
+          curl -fsSL https://ollama.ai/install.sh | sh
+          ollama serve &
+          # Wait for Ollama to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama is ready"
+              break
+            fi
+            sleep 1
+          done
+          ollama pull nomic-embed-text
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build review agent and mcp-codeindex
+        run: |
+          go build -o review ./cmd/review
+          go build -o mcp-codeindex ./cmd/mcp-codeindex
+
+      - name: Run AI Review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OLLAMA_URL: http://localhost:11434
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./review \
+            --pr ${{ github.event.pull_request.number }} \
+            --codeindex ./mcp-codeindex \
+            --output /tmp/review_result.md
+
+      - name: Post review comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file /tmp/review_result.md
