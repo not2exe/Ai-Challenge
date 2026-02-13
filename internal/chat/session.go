@@ -15,6 +15,7 @@ type Session struct {
 	systemPrompt    string
 	formatPrompt    string
 	toolsPrompt     string // Additional prompt for available tools guidance
+	projectPrompt   string // Auto-detected project/git context
 	askUserEnabled  bool   // Enable ask_user tool for interactive questions
 	clarifyEnabled  bool
 	config          *config.ModelConfig
@@ -122,6 +123,11 @@ func (s *Session) GetToolsPrompt() string {
 	return s.toolsPrompt
 }
 
+// SetProjectPrompt sets the auto-detected project context prompt.
+func (s *Session) SetProjectPrompt(prompt string) {
+	s.projectPrompt = prompt
+}
+
 func (s *Session) SetClarifyMode(enabled bool) {
 	s.clarifyEnabled = enabled
 }
@@ -185,7 +191,7 @@ func (s *Session) buildAPIRequest(includeClarify bool) api.MessageRequest {
 		askUserPrompt = AskUserToolPrompt
 	}
 
-	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.toolsPrompt, s.formatPrompt, clarifyPrompt, askUserPrompt)
+	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.projectPrompt, s.toolsPrompt, s.formatPrompt, clarifyPrompt, askUserPrompt)
 
 	return api.MessageRequest{
 		Messages:    s.history.GetAll(),
@@ -323,7 +329,7 @@ func (s *Session) AddToolResult(toolCallID, toolName, result string) {
 
 // BuildAPIRequestWithToolResults builds a request that includes pending tool results.
 func (s *Session) BuildAPIRequestWithToolResults() api.MessageRequest {
-	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.toolsPrompt, s.formatPrompt, "")
+	systemPrompt := BuildSystemPrompt(s.systemPrompt, s.projectPrompt, s.toolsPrompt, s.formatPrompt, "")
 
 	return api.MessageRequest{
 		Messages:    s.history.GetAll(),

@@ -20,14 +20,13 @@ import (
 )
 
 type REPL struct {
-	session     *chat.Session
-	provider    api.Provider
-	config      *config.Config
-	rl          *readline.Instance
-	formatter   *ui.Formatter
-	status      *ui.StatusDisplay
-	mcpManager  *mcp.Manager
-	inputReader *inputReader
+	session    *chat.Session
+	provider   api.Provider
+	config     *config.Config
+	rl         *readline.Instance
+	formatter  *ui.Formatter
+	status     *ui.StatusDisplay
+	mcpManager *mcp.Manager
 }
 
 func NewREPL(session *chat.Session, provider api.Provider, cfg *config.Config) (*REPL, error) {
@@ -116,9 +115,6 @@ func (r *REPL) Start(ctx context.Context) error {
 }
 
 func (r *REPL) Stop() {
-	if r.inputReader != nil {
-		r.inputReader.stop()
-	}
 	r.rl.Close()
 }
 
@@ -508,8 +504,11 @@ func (r *REPL) performSummarization(ctx context.Context) error {
 func (r *REPL) handleCommand(ctx context.Context, command, args string) error {
 	switch command {
 	case "/help", "/h":
-		r.displayHelp()
-		return nil
+		if args == "" {
+			r.displayHelp()
+			return nil
+		}
+		return r.handleHelpQuery(ctx, args)
 
 	case "/clear", "/c":
 		r.session.Clear()

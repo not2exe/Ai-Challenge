@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/chzyer/readline"
@@ -17,111 +16,13 @@ var (
 		Italic(true)
 )
 
-// pasteTimeout - lines arriving within this time are considered part of a paste
-const pasteTimeout = 50 * time.Millisecond
-
-// inputResult holds a line read from readline
-type inputResult struct {
-	line string
-	err  error
-}
-
-// inputReader manages async reading from readline
-type inputReader struct {
-	rl       *readline.Instance
-	lineCh   chan inputResult
-	running  bool
-}
-
-// newInputReader creates a new input reader
-func newInputReader(rl *readline.Instance) *inputReader {
-	return &inputReader{
-		rl:     rl,
-		lineCh: make(chan inputResult, 10), // Buffer for paste detection
-	}
-}
-
-// start begins reading input in background
-func (ir *inputReader) start() {
-	if ir.running {
-		return
-	}
-	ir.running = true
-	go ir.readLoop()
-}
-
-// readLoop continuously reads lines and sends them to the channel
-func (ir *inputReader) readLoop() {
-	for ir.running {
-		line, err := ir.rl.Readline()
-		ir.lineCh <- inputResult{line, err}
-		if err != nil {
-			return
-		}
-	}
-}
-
-// stop stops the input reader
-func (ir *inputReader) stop() {
-	ir.running = false
-}
-
-// readWithPasteDetection reads input with paste detection
-func (ir *inputReader) readWithPasteDetection() (string, bool, error) {
-	// Wait for first line (blocking)
-	result := <-ir.lineCh
-	if result.err != nil {
-		return "", false, result.err
-	}
-
-	line := result.line
-	trimmed := strings.TrimSpace(line)
-
-	// Check for embedded newlines (bracketed paste)
-	if strings.Contains(line, "\n") {
-		return strings.TrimSpace(line), true, nil
-	}
-
-	// Collect any additional lines that arrive quickly (paste detection)
-	lines := []string{line}
-
-	for {
-		select {
-		case nextResult := <-ir.lineCh:
-			if nextResult.err != nil {
-				// Error - return what we have
-				if len(lines) == 1 {
-					return trimmed, false, nil
-				}
-				return strings.TrimSpace(strings.Join(lines, "\n")), true, nil
-			}
-			lines = append(lines, nextResult.line)
-			// Continue collecting
-
-		case <-time.After(pasteTimeout):
-			// No more lines in time window
-			if len(lines) == 1 {
-				return trimmed, false, nil
-			}
-			return strings.TrimSpace(strings.Join(lines, "\n")), true, nil
-		}
-	}
-}
-
 func (r *REPL) readInput() (string, error) {
-	// Initialize input reader if needed
-	if r.inputReader == nil {
-		r.inputReader = newInputReader(r.rl)
-		r.inputReader.start()
-	}
-
-	// Read with paste detection
-	content, wasPaste, err := r.inputReader.readWithPasteDetection()
+	line, err := r.rl.Readline()
 	if err != nil {
 		return "", err
 	}
 
-	trimmed := strings.TrimSpace(content)
+	trimmed := strings.TrimSpace(line)
 
 	// If it's a command, return immediately
 	if strings.HasPrefix(trimmed, "/") {
@@ -133,9 +34,9 @@ func (r *REPL) readInput() (string, error) {
 		return "", nil
 	}
 
-	// Show paste indicator if it was a paste
-	if wasPaste {
-		lineCount := strings.Count(content, "\n") + 1
+	// Check for bracketed paste (embedded newlines)
+	if strings.Contains(line, "\n") {
+		lineCount := strings.Count(line, "\n") + 1
 		r.showPastedIndicator(lineCount)
 	}
 

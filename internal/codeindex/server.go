@@ -61,6 +61,7 @@ func (s *Server) registerTools() {
 			mcp.WithBoolean("use_rerank", mcp.Description("LLM reranking (slower)")),
 			mcp.WithNumber("max_content_length", mcp.Description("Max snippet length (default: 500)")),
 			mcp.WithBoolean("compact", mcp.Description("Return only file paths, no code")),
+			mcp.WithString("index_path", mcp.Description("Directory path with .codeindex/ to search in (default: auto-detect from CWD)")),
 		),
 		s.handleSearchCode,
 	)
@@ -151,13 +152,21 @@ func (s *Server) handleSearchCode(ctx context.Context, req mcp.CallToolRequest) 
 	}
 	compact := req.GetBool("compact", false)
 
+	indexPath := req.GetString("index_path", "")
+
 	// Get more results initially for filtering
 	searchK := topK * 3
 	if searchK < 15 {
 		searchK = 15
 	}
 
-	results, err := s.indexer.Search(ctx, query, searchK)
+	var results []SearchResult
+	var err error
+	if indexPath != "" {
+		results, err = s.indexer.SearchAt(ctx, indexPath, query, searchK)
+	} else {
+		results, err = s.indexer.Search(ctx, query, searchK)
+	}
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
 	}

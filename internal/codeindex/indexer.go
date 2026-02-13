@@ -199,6 +199,33 @@ func (idx *Indexer) Search(ctx context.Context, query string, topK int) ([]Searc
 	return results, nil
 }
 
+// SearchAt searches a specific index at the given directory path.
+// It loads the index from dirPath/.codeindex/index.json without changing the main loaded index.
+func (idx *Indexer) SearchAt(ctx context.Context, dirPath string, query string, topK int) ([]SearchResult, error) {
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("get absolute path: %w", err)
+	}
+
+	indexPath := getIndexPath(absPath)
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no index found at %s", indexPath)
+	}
+
+	tempIndex, err := LoadIndex(indexPath)
+	if err != nil {
+		return nil, fmt.Errorf("load index at %s: %w", indexPath, err)
+	}
+
+	queryEmbedding, err := idx.ollama.GenerateEmbedding(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("generate query embedding: %w", err)
+	}
+
+	results := tempIndex.Search(ctx, queryEmbedding, topK)
+	return results, nil
+}
+
 // Stats returns index statistics.
 func (idx *Indexer) Stats() map[string]interface{} {
 	// Try to load index if empty

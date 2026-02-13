@@ -62,6 +62,16 @@ func main() {
 
 	session := chat.NewSessionWithContext(&cfg.Model, cfg.Session.MaxHistory, &cfg.Context)
 
+	// Auto-detect git/project context
+	if gitCtx := chat.DetectGitContext(); gitCtx.IsRepo {
+		if prompt := chat.BuildGitContextPrompt(gitCtx); prompt != "" {
+			session.SetProjectPrompt(prompt)
+			if gitCtx.RepoOwner != "" && gitCtx.RepoName != "" {
+				fmt.Printf("Project: %s/%s (branch: %s)\n", gitCtx.RepoOwner, gitCtx.RepoName, gitCtx.Branch)
+			}
+		}
+	}
+
 	// Load history from file if enabled
 	if cfg.Session.SaveHistory {
 		if err := session.Load(cfg.Session.HistoryFile); err != nil {
