@@ -62,8 +62,8 @@ RULES:
 - Compare changes against existing patterns found via semantic_search
 - Format output as Markdown`
 
-// maxToolRounds limits the agent loop to prevent infinite tool calling.
-const maxToolRounds = 10
+// defaultTimeout is the default time limit for the agent loop.
+const defaultTimeout = 5 * time.Minute
 
 // maxToolResultSize limits individual tool result size to prevent context overflow.
 const maxToolResultSize = 32000
@@ -76,6 +76,7 @@ func main() {
 	maxTokens := flag.Int("max-tokens", 4096, "Max tokens for response")
 	temperature := flag.Float64("temperature", 0.3, "Temperature for generation")
 	outputFile := flag.String("output", "", "Write review to file (default: stdout only)")
+	timeout := flag.Duration("timeout", defaultTimeout, "Time limit for agent loop (e.g. 5m, 2m30s)")
 	flag.Parse()
 
 	apiKey := os.Getenv("DEEPSEEK_API_KEY")
@@ -154,7 +155,7 @@ func main() {
 	userMessage := buildUserMessage(prTitle, prBody, diff)
 
 	// Run agent loop
-	review := runAgentLoop(ctx, provider, mcpManager, *model, *maxTokens, *temperature, userMessage)
+	review := runAgentLoop(ctx, provider, mcpManager, *model, *maxTokens, *temperature, *timeout, userMessage)
 
 	if review == "" {
 		fatal("Agent returned empty review")
@@ -225,6 +226,7 @@ func runAgentLoop(
 	model string,
 	maxTokens int,
 	temperature float64,
+	timeout time.Duration,
 	userMessage string,
 ) string {
 	tools := mcpManager.GetDeepSeekTools()
@@ -232,7 +234,11 @@ func runAgentLoop(
 		{Role: "user", Content: userMessage},
 	}
 
-	for round := 0; round < maxToolRounds; round++ {
+	deadline := time.Now().Add(timeout)
+	round := 0
+
+	for time.Now().Before(deadline) {
+		round++
 		req := api.MessageRequest{
 			Messages:    messages,
 			System:      reviewSystemPrompt,
@@ -242,7 +248,8 @@ func runAgentLoop(
 			Tools:       tools,
 		}
 
-		log("Sending request to DeepSeek (round %d)...", round+1)
+		remaining := time.Until(deadline).Truncate(time.Second)
+		log("Sending request to DeepSeek (round %d, %s remaining)...", round, remaining)
 		resp, err := provider.SendMessage(ctx, req)
 		if err != nil {
 			fatal("DeepSeek API request failed: %v", err)
@@ -289,15 +296,32 @@ func runAgentLoop(
 		}
 	}
 
-	log("Warning: reached max tool rounds (%d), returning last content", maxToolRounds)
-	// Return whatever content we have from the last response
-	if len(messages) > 0 {
-		last := messages[len(messages)-1]
-		if last.Role == "assistant" && last.Content != "" {
-			return last.Content
-		}
+	// Time is up — one final request with tools to preserve context
+	log("Timeout reached (%s), requesting final response (round %d)...", timeout, round+1)
+
+	messages = append(messages, api.Message{
+		Role:    "user",
+		Content: "Time limit reached. Write the review now based on all the context you have gathered.",
+	})
+
+	finalReq := api.MessageRequest{
+		Messages:    messages,
+		System:      reviewSystemPrompt,
+		Model:       model,
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
+		Tools:       tools,
 	}
-	return "Review could not be completed: exceeded maximum tool call rounds."
+
+	resp, err := provider.SendMessage(ctx, finalReq)
+	if err != nil {
+		fatal("Final DeepSeek API request failed: %v", err)
+	}
+
+	if resp.Content != "" {
+		return resp.Content
+	}
+	return "Review could not be completed: agent produced no output."
 }
 
 func formatReviewOutput(review string) string {
